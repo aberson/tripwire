@@ -133,6 +133,7 @@ requires. Steps 2 and 3 implement from this table.
 - **Produces:** project scaffold, `models.py`, CLI entry point, baseline tests
 - **Done when:** `uv sync --extra dev`, pytest, Ruff, and mypy strict pass
 - **Depends on:** none
+- **Status:** DONE (2026-07-27)
 
 <!-- autofix-applied: 2026-07-25 -->
 ### Step 2: Build the rule registry and workspace preflight
