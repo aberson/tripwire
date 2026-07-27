@@ -219,18 +219,23 @@ RULE_SECRET_FILE_DUMP = Rule(
 )
 
 
-#: Every registered rule, in inventory order (rows 1-10). Single source of truth.
+#: Every registered rule, in §6 inventory order (rows 1-10): row 1 is the
+#: wrong-repo-layer rule (TW-GIT-002), row 2 is broad staging (TW-GIT-001), then
+#: rows 3-10. This tuple order follows the plan's inventory table and the
+#: definition order above; report/finding ordering is owned by the per-evaluator
+#: matcher tuples in ``workspace.py``/``command.py``, not by this order. Single
+#: source of truth.
 RULES: tuple[Rule, ...] = (
-    RULE_BROAD_STAGING,
-    RULE_WRONG_REPO_LAYER,
-    RULE_WORKTREE_BRANCH_MISMATCH,
-    RULE_STALE_WORKTREE,
-    RULE_CONCURRENT_STATE_FILES,
-    RULE_ACTIVE_PARALLEL_SESSIONS,
-    RULE_DESTRUCTIVE_GIT,
-    RULE_NAME_BASED_KILL,
-    RULE_SHELL_MISMATCH,
-    RULE_SECRET_FILE_DUMP,
+    RULE_WRONG_REPO_LAYER,  # row 1  (TW-GIT-002)
+    RULE_BROAD_STAGING,  # row 2  (TW-GIT-001)
+    RULE_WORKTREE_BRANCH_MISMATCH,  # row 3
+    RULE_STALE_WORKTREE,  # row 4
+    RULE_CONCURRENT_STATE_FILES,  # row 5
+    RULE_ACTIVE_PARALLEL_SESSIONS,  # row 6
+    RULE_DESTRUCTIVE_GIT,  # row 7
+    RULE_NAME_BASED_KILL,  # row 8
+    RULE_SHELL_MISMATCH,  # row 9
+    RULE_SECRET_FILE_DUMP,  # row 10
 )
 
 

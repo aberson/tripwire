@@ -23,7 +23,8 @@ from fixtures.repos import (
     build_non_repo_dir,
     build_staged_coding_root,
 )
-from tripwire.cli import main
+from tripwire.cli import _render_text, main
+from tripwire.models import Finding, Report
 
 
 def test_check_clean_coding_root_exits_ok(
@@ -153,6 +154,48 @@ def test_text_report_escapes_control_characters_in_untrusted_text(
     assert code == 1  # secrets-bearing dump -> fail
     assert "\x1b" not in out  # raw escape neutralized
     assert "\\x1b" in out  # rendered as a visible escape instead
+
+
+def test_text_report_escapes_unicode_line_and_paragraph_separators() -> None:
+    """Unicode line/paragraph separators (U+2028 Zl, U+2029 Zp) are escaped, not raw.
+
+    Like a bare newline they start a new visual line and so enable log-spoofing;
+    the sanitizer now neutralizes them alongside Cc/Cf. Asserted on the untrusted
+    ``target``/``observed`` fields directly (these separators are whitespace to the
+    tokenizer, so they only survive verbatim in the raw report fields).
+    """
+    line_sep, para_sep = chr(0x2028), chr(0x2029)  # category Zl, Zp
+    finding = Finding(
+        rule_id="TW-SEC-001@v1",
+        severity="fail",
+        message="m",
+        observed=f"line{line_sep}sep",
+        provenance="p",
+        evaluator="command",
+    )
+    rendered = _render_text(Report(target=f"tgt{para_sep}end", findings=[finding]))
+    assert line_sep not in rendered and para_sep not in rendered  # raw separators gone
+    assert "\\x2028" in rendered and "\\x2029" in rendered  # rendered as visible escapes
+
+
+def test_text_report_sanitizes_the_message_field() -> None:
+    """The renderer sanitizes ``message`` too (it now carries derived suggestion text).
+
+    No production rule injects a control character into ``message`` today, so this
+    is a white-box regression guard: a control char placed in ``message`` must be
+    escaped rather than reaching the terminal raw.
+    """
+    finding = Finding(
+        rule_id="TW-SEC-001@v1",
+        severity="fail",
+        message="danger\x1bhere",  # control char smuggled into the message field
+        observed="ok",
+        provenance="p",
+        evaluator="command",
+    )
+    rendered = _render_text(Report(target="t", findings=[finding]))
+    assert "\x1b" not in rendered  # raw escape neutralized in message
+    assert "\\x1b" in rendered  # rendered as a visible escape instead
 
 
 def test_missing_subcommand_errors_with_exit_2() -> None:

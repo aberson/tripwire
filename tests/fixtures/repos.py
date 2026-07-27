@@ -154,3 +154,37 @@ def build_non_repo_dir(tmp_path: Path) -> Path:
     path = tmp_path / "not_a_repo"
     path.mkdir()
     return path
+
+
+# --- False-positive-suppression fixtures (Step 4 hardening) -----------------
+
+
+def build_submodule_gitlink_no_marker(tmp_path: Path) -> Path:
+    """A markerless repo containing a submodule-style ``.git`` gitlink FILE.
+
+    Rule 1 (wrong-repo-layer) must NOT fire here: without the coding-root marker
+    this is an ordinary repository whose nested ``.git`` is a submodule gitlink,
+    not the coding-root-with-nested-projects hazard. ``find_nested_repos`` still
+    *sees* the gitlink; the rule-1 marker gate is what suppresses the finding.
+    """
+    repo = _init(tmp_path / "plain_with_submodule")
+    _commit(repo, "file.txt", "x\n", "initial")
+    sub = repo / "vendored"
+    sub.mkdir()
+    # A real submodule stores a gitlink FILE (not a .git directory) here.
+    (sub / ".git").write_text("gitdir: ../.git/modules/vendored\n", encoding="utf-8")
+    return repo
+
+
+def build_detached_worktree_mid_rebase(tmp_path: Path) -> Path:
+    """A detached-HEAD linked worktree that is mid-rebase.
+
+    Rule 3 (worktree branch mismatch) must be suppressed while a rebase is in
+    flight -- a detached HEAD is expected then. Built by adding a detached
+    worktree and dropping the ``rebase-merge`` sentinel git creates during a
+    rebase into that worktree's git directory.
+    """
+    worktree = build_detached_worktree(tmp_path)
+    git_dir = _git(worktree, "rev-parse", "--absolute-git-dir")
+    (Path(git_dir) / "rebase-merge").mkdir()
+    return worktree

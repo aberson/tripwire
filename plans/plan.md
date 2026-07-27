@@ -166,6 +166,7 @@ requires. Steps 2 and 3 implement from this table.
 - **Produces:** expanded fixture pack and error-path tests
 - **Done when:** reports are deterministic; malformed input exits 2; suggested PowerShell commands parse in the supported shell subset
 - **Depends on:** 2, 3
+- **Status:** DONE (2026-07-27)
 
 ### Step 5: Validate the CLI against real workspace cases
 - **Problem:** Run the production CLI read-only against the dev workspace and a disposable fixture repository, recording false positives and runtime without changing either target.

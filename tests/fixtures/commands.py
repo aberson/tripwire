@@ -24,18 +24,28 @@ RISKY: tuple[tuple[str, str, str], ...] = (
     ("git add .", "TW-GIT-001@v1", "warn"),
     ("git stash", "TW-GIT-001@v1", "warn"),
     ("git stash push -m wip", "TW-GIT-001@v1", "warn"),
+    # git stash save (deprecated whole-tree stash) -- the ``save`` branch.
+    ("git stash save wip", "TW-GIT-001@v1", "warn"),
     ("git reset --hard HEAD~1", "TW-GIT-003@v1", "fail"),
     ("git push --force origin main", "TW-GIT-003@v1", "fail"),
     ("git push -f", "TW-GIT-003@v1", "fail"),
     ("git checkout -- src/app.py", "TW-GIT-003@v1", "fail"),
+    # Step 4 hardening: ``.exe`` / path-qualified / case-insensitive program name.
+    ("git.exe reset --hard", "TW-GIT-003@v1", "fail"),
+    ("GIT reset --hard", "TW-GIT-003@v1", "fail"),
     ("taskkill /IM notepad.exe /F", "TW-CMD-001@v1", "fail"),
     ("Stop-Process -Name node", "TW-CMD-001@v1", "fail"),
+    # Step 4 hardening: the ``spps`` PowerShell alias of Stop-Process.
+    ("spps -Name node", "TW-CMD-001@v1", "fail"),
     ("git status && git log", "TW-SHL-001@v1", "warn"),
     ("git fetch || git pull", "TW-SHL-001@v1", "warn"),
     ("cat secrets.env", "TW-SEC-001@v1", "fail"),
     ("type .env.local", "TW-SEC-001@v1", "fail"),
     ("gc credentials.json", "TW-SEC-001@v1", "fail"),
     ("grep AKIA id_rsa", "TW-SEC-001@v1", "fail"),
+    # Step 4 hardening: Windows path separators + case-insensitivity in the path.
+    ("type C:\\Users\\me\\.ssh\\id_ed25519", "TW-SEC-001@v1", "fail"),
+    ("Get-Content C:\\Secrets\\PROD.env", "TW-SEC-001@v1", "fail"),
 )
 
 #: (command, rule id it must NOT trip)
@@ -56,6 +66,10 @@ SCOPED: tuple[tuple[str, str], ...] = (
     ("taskkill /PID $PID /F", "TW-CMD-001@v1"),
     ("Stop-Process -Id 4242", "TW-CMD-001@v1"),
     ("Stop-Process -Id $PID", "TW-CMD-001@v1"),
+    # The ``spps`` alias with an explicit Id selector is PID-based -> cleared.
+    ("spps -Id 4242", "TW-CMD-001@v1"),
+    # A path-qualified git that is *not* destructive must not trip rule 7.
+    ("git.exe status", "TW-GIT-003@v1"),
     ("git status; git log", "TW-SHL-001@v1"),
     ("wc -c secrets.env", "TW-SEC-001@v1"),
     ("Get-Item secrets.env", "TW-SEC-001@v1"),
@@ -92,4 +106,30 @@ AMBIGUOUS_UNKNOWN: tuple[tuple[str, str], ...] = (
     ("taskkill $SEL notepad.exe", "TW-CMD-001@v1"),
     ("Stop-Process $SEL node", "TW-CMD-001@v1"),
     ("git add $WHAT", "TW-GIT-001@v1"),
+)
+
+#: (safer-form command, the high-risk rule id it is the alternative to). Each is
+#: a fully-rendered version of a suggestion the classifier emits; it must itself
+#: parse in the supported PS 5.1 subset (no bash-only ``&&``/``||``), must NOT
+#: re-trip the rule it steers away from, and must not be reported ``unknown``
+#: (plan Step 4 done-when: "suggested PowerShell commands parse in the supported
+#: shell subset"). This is the calibration that a fix does not itself trip a rule.
+SAFER_FORMS: tuple[tuple[str, str], ...] = (
+    ("git add src/app.py", "TW-GIT-001@v1"),
+    ("git stash push -- src/app.py", "TW-GIT-001@v1"),
+    ("git push --force-with-lease origin main", "TW-GIT-003@v1"),
+    ("git restore src/app.py", "TW-GIT-003@v1"),
+    ("taskkill /T /F /PID 4242", "TW-CMD-001@v1"),
+    ("Stop-Process -Id 4242", "TW-CMD-001@v1"),
+    ("git status; if ($?) { git log }", "TW-SHL-001@v1"),
+)
+
+#: Mixed / adjacent-quoting inputs whose SINGLE concatenated token names a
+#: secrets-bearing file (Step 4 quoting hardening). A tokenizer that split
+#: adjacent quoted+bare spans into separate tokens would miss the secret; each
+#: must still trip rule 10.  (command, expected rule id)
+MIXED_QUOTING_SECRET: tuple[tuple[str, str], ...] = (
+    ('cat "id_""rsa"', "TW-SEC-001@v1"),
+    ("cat 'secret'.env", "TW-SEC-001@v1"),
+    ('type ".env".local', "TW-SEC-001@v1"),
 )

@@ -9,9 +9,13 @@ V1 rules whose Evaluator column includes ``command``:
 * rule 9  -- ``TW-SHL-001`` shell mismatch (bash-ism to PS 5.1)   (warn)
 * rule 10 -- ``TW-SEC-001`` secret-file dump                      (fail)
 
-Scope (plan Step 3): command evaluation only. The tokenizer is intentionally
-CONSERVATIVE; Step 4 hardens quoting, PowerShell syntax, executable aliases and
-path casing. Nothing here touches the workspace probes.
+Scope (plan Steps 3-4): command evaluation only. The tokenizer is intentionally
+CONSERVATIVE (plan section 8, "Parser ambition" -- documented high-confidence
+patterns only, no universal PowerShell parser). Step 4 hardening -- adjacent /
+mixed quoting concatenation, unbalanced-quote -> invalid input, ``.exe`` /
+path-qualified / case-insensitive executable normalization (:func:`_normalize_tool`),
+the ``spps`` Stop-Process alias, and Windows path casing/separators in secret
+detection -- lives here. Nothing here touches the workspace probes.
 
 Ambiguity discipline (plan section 8, "False assurance"; section 6, "Evidence
 before verdict"): input is never given a pass-shaped success it did not earn.
@@ -43,9 +47,6 @@ from dataclasses import dataclass
 from tripwire import rules
 from tripwire.models import Finding, Severity
 
-#: Shell control operators the conservative tokenizer keeps as their own tokens.
-_OPERATORS = frozenset({"&&", "||", ";", "|"})
-
 #: bash-only chaining operators that are a parser error in PowerShell 5.1
 #: (``.claude/rules/windows-shell.md``). ``;`` and ``|`` are valid in PS and are
 #: deliberately excluded.
@@ -68,6 +69,11 @@ _SAFE_STASH_SUBCMDS = frozenset(
 
 #: ``git`` subcommands with an irrecoverable form (rule 7).
 _DESTRUCTIVE_SUBCMDS = frozenset({"reset", "push", "checkout"})
+
+#: ``Stop-Process`` and its unambiguous PowerShell alias ``spps`` (rule 8). The
+#: ``kill`` alias is deliberately excluded: it collides with Unix ``kill <pid>``
+#: (PID-based, safe), so flagging it would over-fire against a documented pattern.
+_STOPPROCESS_TOOLS = frozenset({"stop-process", "spps"})
 
 #: Tools that print file *contents* (not metadata). A secrets-bearing argument to
 #: any of these is the rule-10 dump footgun (``.claude/rules/security.md``).
@@ -125,39 +131,80 @@ class Classification:
     invalid_reason: str | None = None
 
 
-def tokenize(command: str) -> list[str] | None:
-    """Split ``command`` into tokens, or ``None`` if it cannot be parsed.
+@dataclass(frozen=True)
+class _Token:
+    """One tokenizer output unit, carrying whether it is an UNQUOTED operator.
 
-    Conservative (Step 4 hardens quoting): whitespace separates bare words,
-    matched single/double quotes wrap one token (surrounding quotes stripped),
-    and ``&&``, ``||``, ``;`` and ``|`` are isolated as operator tokens. An
-    unbalanced quote makes the command unparseable and returns ``None``.
+    ``is_operator`` is ``True`` only for a control operator (``&&``/``||``/``;``/
+    ``|``) the tokenizer read in unquoted position -- a real segment separator. A
+    quoted operator (``git reset "&&" --hard``) concatenates into a content token
+    with ``is_operator=False`` and is a literal argument, never a separator. This
+    is what lets segment-splitting and the rule-9 bash-ism check consider only
+    genuinely-unquoted operators (plan section 8, "False assurance").
     """
-    tokens: list[str] = []
+
+    text: str
+    is_operator: bool
+
+
+def _tokenize_rich(command: str) -> list[_Token] | None:
+    """Split ``command`` into :class:`_Token`s (with quote state), or ``None``.
+
+    Conservative by design (plan section 8, "Parser ambition" -- no universal
+    PowerShell parser). Whitespace and the UNQUOTED control operators ``&&``/
+    ``||``/``;``/``|`` separate tokens; everything else accumulates into the
+    current content token so that **adjacent quoted and bare spans concatenate
+    into one token**, matching real shell behaviour: ``"foo"bar``, ``foo"bar"``
+    and ``'id_''rsa'`` are each a single token, not two. Both quote styles are
+    honoured -- a single-quoted span treats an inner ``"`` as literal and
+    vice-versa -- so mixed quoting parses. A control operator seen inside quotes
+    is part of the content token, so it emits ``is_operator=False`` (a literal
+    argument, not a separator). An **unbalanced quote** (no matching close) makes
+    the command unparseable and returns ``None``; the CLI maps that to invalid
+    input (exit 2), never a pass.
+    """
+    tokens: list[_Token] = []
+    current: list[str] = []
+    have_token = False  # a token is open even if empty (e.g. from ``""``)
     i, n = 0, len(command)
+
+    def _flush() -> None:
+        """Emit the accumulated bare/quoted characters as one content token.
+
+        A content token is never an operator (``is_operator=False``); the
+        UNQUOTED-operator branches append their own :class:`_Token` directly.
+        A token stays open even when empty (``have_token`` set with no chars,
+        e.g. from ``""``) so an explicitly-empty quoted argument survives.
+        """
+        nonlocal have_token
+        if have_token:
+            tokens.append(_Token("".join(current), is_operator=False))
+            current.clear()
+            have_token = False
+
     while i < n:
         ch = command[i]
         if ch.isspace():
+            _flush()
+            i += 1
+            continue
+        if command.startswith("&&", i) or command.startswith("||", i):
+            _flush()
+            tokens.append(_Token(command[i : i + 2], is_operator=True))
+            i += 2
+            continue
+        if ch in (";", "|"):
+            _flush()
+            tokens.append(_Token(ch, is_operator=True))
             i += 1
             continue
         if ch in ('"', "'"):
             close = command.find(ch, i + 1)
             if close == -1:
                 return None  # unbalanced quote -> unparseable
-            tokens.append(command[i + 1 : close])
+            current.append(command[i + 1 : close])  # concatenates onto current token
+            have_token = True
             i = close + 1
-            continue
-        if command.startswith("&&", i):
-            tokens.append("&&")
-            i += 2
-            continue
-        if command.startswith("||", i):
-            tokens.append("||")
-            i += 2
-            continue
-        if ch in (";", "|"):
-            tokens.append(ch)
-            i += 1
             continue
         start = i
         while i < n:
@@ -167,29 +214,66 @@ def tokenize(command: str) -> list[str] | None:
             if command.startswith("&&", i) or command.startswith("||", i):
                 break
             i += 1
-        tokens.append(command[start:i])
+        current.append(command[start:i])
+        have_token = True
+    _flush()
     return tokens
 
 
-def _segments(tokens: list[str]) -> list[list[str]]:
-    """Split a token stream into command segments on control operators."""
+def tokenize(command: str) -> list[str] | None:
+    """Split ``command`` into token strings, or ``None`` if it cannot be parsed.
+
+    Thin wrapper over :func:`_tokenize_rich` that drops the per-token operator
+    flag and returns just the token text (the historical, quote-state-agnostic
+    view). Classification uses :func:`_tokenize_rich` directly so a quoted
+    operator is not mistaken for a separator; see :class:`_Token`.
+    """
+    rich = _tokenize_rich(command)
+    return None if rich is None else [t.text for t in rich]
+
+
+def _segments(tokens: list[_Token]) -> list[list[str]]:
+    """Split a token stream into command segments on UNQUOTED control operators.
+
+    Only a token the tokenizer marked ``is_operator`` (an unquoted ``&&``/``||``/
+    ``;``/``|``) separates segments; a quoted operator is a content token and
+    stays inside its segment as a literal argument. Each segment is the list of
+    its content-token texts.
+    """
     segments: list[list[str]] = []
     current: list[str] = []
     for token in tokens:
-        if token in _OPERATORS:
+        if token.is_operator:
             if current:
                 segments.append(current)
             current = []
         else:
-            current.append(token)
+            current.append(token.text)
     if current:
         segments.append(current)
     return segments
 
 
+def _normalize_tool(token: str) -> str:
+    """Normalize an executable token to a bare, case-folded program name.
+
+    Handles the Windows path-shape variations the classifier must see through
+    (plan Step 4: path casing / separators / aliases): case-insensitive match
+    (``TASKKILL`` == ``taskkill``), either path separator, a leading directory
+    (``C:\\Windows\\System32\\taskkill.exe`` -> ``taskkill``, ``/usr/bin/grep`` ->
+    ``grep``), and a trailing ``.exe`` (``git.exe`` -> ``git``). Surrounding
+    quotes are stripped so a quoted program path still resolves.
+    """
+    low = token.strip("\"'").lower().replace("\\", "/")
+    base = low.rsplit("/", 1)[-1]
+    if base.endswith(".exe"):
+        base = base[:-4]
+    return base
+
+
 def _is_git(segment: list[str]) -> bool:
-    """True if ``segment`` is a ``git <subcommand> ...`` invocation."""
-    return len(segment) >= 2 and segment[0].lower() == "git"
+    """True if ``segment`` is a ``git <subcommand> ...`` invocation (``git.exe`` too)."""
+    return len(segment) >= 2 and _normalize_tool(segment[0]) == "git"
 
 
 def _is_subst(token: str) -> bool:
@@ -402,14 +486,16 @@ def _name_kill_unknown(observed: str) -> Finding:
 def _match_name_kill(segment: list[str]) -> Finding | None:
     """Rule 8 (TW-CMD-001, fail): flag name-based process kills.
 
-    ``taskkill /IM`` and ``Stop-Process -Name`` target by name (can hit unrelated
-    processes). A substitution in the selector position that is not a confirmed
-    PID/Id selector is ``unknown`` -- it may expand to a name selector -- never a
-    clean pass. Explicit PID/Id selectors (even with a variable value) clear.
+    ``taskkill /IM`` and ``Stop-Process -Name`` (including its ``spps`` alias, and
+    an ``.exe``/path-qualified ``taskkill`` per :func:`_normalize_tool`) target by
+    name (can hit unrelated processes). A substitution in the selector position
+    that is not a confirmed PID/Id selector is ``unknown`` -- it may expand to a
+    name selector -- never a clean pass. Explicit PID/Id selectors (even with a
+    variable value) clear.
     """
     if not segment:
         return None
-    tool = segment[0].lower()
+    tool = _normalize_tool(segment[0])
     args = segment[1:]
     if tool == "taskkill":
         if any(_is_taskkill_name_flag(a) for a in args):
@@ -420,7 +506,7 @@ def _match_name_kill(segment: list[str]) -> Finding | None:
                 f"taskkill selector is a shell substitution ({subst}); may target by name"
             )
         return None
-    if tool == "stop-process":
+    if tool in _STOPPROCESS_TOOLS:
         if any(_is_stopprocess_name_flag(a) for a in args):
             return _name_kill("Stop-Process -Name <name>", "Stop-Process -Id <pid>")
         subst = _first_subst(args)
@@ -458,21 +544,45 @@ def _looks_secret(token: str) -> bool:
     return any(low.endswith(suffix) for suffix in _SECRET_SUFFIXES)
 
 
+def _looks_secret_literal(token: str) -> bool:
+    """True if the token's non-substituted text names a secret (a CONFIRMED literal).
+
+    A shell substitution's expansion is unknown, so a confirmed-secret verdict must
+    rest on the literal portion: ``$DIR/id_rsa`` is a confirmed secret (``id_rsa``
+    is literal) but ``%SECRET%`` / ``$VAR`` are not -- the only secret-shaped text
+    lives inside the variable *name*, whose expansion cannot be seen, so those fall
+    through to the substitution -> ``unknown`` branch instead of a false-confident
+    ``fail``. With no substitution present this is identical to :func:`_looks_secret`.
+    """
+    return _looks_secret(_SUBST_RE.sub("", token))
+
+
 def _match_secret_dump(segment: list[str]) -> Finding | None:
     """Rule 10 (TW-SEC-001, fail): flag dumping a secrets-bearing file's contents.
 
     A content-printing tool (``cat``/``type``/``grep``/...) with a secrets-bearing
     argument is the dump footgun; the safer form (metadata-only / effect-based
-    verification) is folded into the finding message.
+    verification) is folded into the finding message. Mirroring rules 2/7/8: when
+    no argument is a confirmed secret but a dumped-target argument is a shell
+    substitution (``cat $VAR``, ``type %SECRET%``) so it cannot be ruled out as
+    naming a secret, the finding is ``unknown`` (exit 2) -- never cleared as safe.
     """
     if not segment:
         return None
-    tool = segment[0].lower()
+    tool = _normalize_tool(segment[0])
     if tool not in _DUMP_TOOLS:
         return None
-    secret = next((a for a in segment[1:] if _looks_secret(a)), None)
+    args = segment[1:]
+    secret = next((a for a in args if _looks_secret_literal(a)), None)
     if secret is None:
-        return None
+        subst = _first_subst(args)
+        if subst is None:
+            return None
+        return _finding(
+            rules.RULE_SECRET_FILE_DUMP,
+            f"{tool} target is a shell substitution ({subst}); may name a secrets-bearing file",
+            severity="unknown",
+        )
     return _finding(
         rules.RULE_SECRET_FILE_DUMP,
         f"{tool} reads a secrets-bearing file ({secret})",
@@ -483,14 +593,16 @@ def _match_secret_dump(segment: list[str]) -> Finding | None:
 # --- Rule 9: shell mismatch (TW-SHL-001, warn) ------------------------------
 
 
-def _match_shell_mismatch(tokens: list[str]) -> Finding | None:
+def _match_shell_mismatch(tokens: list[_Token]) -> Finding | None:
     """Rule 9 (TW-SHL-001, warn): flag bash-only chaining operators in a PS 5.1 context.
 
     ``&&`` / ``||`` are parser errors in PowerShell 5.1; ``;`` and ``|`` are valid
-    and excluded. The safer form (split statements or ``; if ($?) { ... }``) is
-    folded into the finding message.
+    and excluded. Only an UNQUOTED operator token counts -- a quoted ``"&&"`` is a
+    literal argument (a commit message, a grep pattern), not a shell operator, so
+    it must not false-positive this rule. The safer form (split statements or
+    ``; if ($?) { ... }``) is folded into the finding message.
     """
-    hits = sorted({t for t in tokens if t in _BASH_ONLY_OPERATORS})
+    hits = sorted({t.text for t in tokens if t.is_operator and t.text in _BASH_ONLY_OPERATORS})
     if not hits:
         return None
     return _finding(
@@ -521,7 +633,7 @@ def classify(command: str) -> Classification:
     """
     if not command.strip():
         return Classification(invalid_reason="no command text to evaluate")
-    tokens = tokenize(command)
+    tokens = _tokenize_rich(command)
     if tokens is None:
         return Classification(invalid_reason="could not parse command text (unbalanced quote)")
     findings: list[Finding] = []

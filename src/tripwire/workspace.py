@@ -28,9 +28,11 @@ import glob
 import os
 import subprocess
 import time
+from collections.abc import Callable
 
 from tripwire import rules
 from tripwire.models import Finding
+from tripwire.rules import Rule
 
 #: Marker file that identifies a coding-root (path convention; section 6).
 _MARKER_RELPATH = os.path.join(".claude", "observatory", "registry.toml")
@@ -64,16 +66,44 @@ _GIT_TIMEOUT = 8.0
 #: A recent commit / fresh state file is "concurrent" if newer than this (1h).
 _RECENT_SECONDS = 3600
 
+#: Clock-skew tolerance (seconds) for the rule-6 "recent commit" heuristic. A
+#: commit whose timestamp is in the *future* by more than this is a clock-skew
+#: artifact, not a genuine just-now commit, and is not counted as a concurrent
+#: signal -- otherwise a repo with a future-dated commit (skewed authoring clock)
+#: would false-positive as an active parallel session. Minor skew within the
+#: tolerance is still treated as recent.
+_CLOCK_SKEW_TOLERANCE = 300
+
 #: Staleness thresholds (worktree-hygiene.md: >1 day OR >3 commits behind).
 _STALE_COMMITS_BEHIND = 3
 _STALE_AGE_SECONDS = 86400
+
+#: Message on the ``unknown`` finding a probe emits when a git subprocess exceeds
+#: the per-call timeout: the check is incomplete and must never read as a pass.
+_GIT_TIMEOUT_MESSAGE = (
+    "A git subprocess exceeded the per-call timeout, so this check could not "
+    "complete. This is reported as unknown (incomplete evaluation), never a clean "
+    "pass -- a hung or slow git must not degrade to a false all-clear."
+)
+
+
+class GitTimeout(Exception):
+    """Raised by :func:`_git` when a git subprocess exceeds the per-call timeout.
+
+    Distinguished from an ordinary non-zero return so a stalled git degrades a
+    probe to a section-8 ``unknown`` finding rather than a silent clean pass.
+    The message carries the git argument vector that timed out.
+    """
 
 
 def _git(target: str, *args: str) -> tuple[int, str]:
     """Run one read-only ``git -C <target> <args>``; return (returncode, stdout).
 
-    Never raises: a missing git binary or a timeout is reported as a non-zero
+    A missing git binary or any non-timeout failure is reported as a non-zero
     return code so probes degrade to "no finding" rather than crashing a check.
+    A *timeout* is different: it raises :class:`GitTimeout` so the caller can
+    surface an ``unknown`` (incomplete evaluation) finding instead of silently
+    reading a hung git as a clean pass (plan section 8, "False assurance").
     """
     try:
         proc = subprocess.run(
@@ -85,6 +115,8 @@ def _git(target: str, *args: str) -> tuple[int, str]:
             timeout=_GIT_TIMEOUT,
             check=False,
         )
+    except subprocess.TimeoutExpired as exc:  # must precede SubprocessError below
+        raise GitTimeout(f"git {' '.join(args)}") from exc
     except (OSError, subprocess.SubprocessError):
         return (127, "")
     return (proc.returncode, proc.stdout.strip())
@@ -200,7 +232,18 @@ def _sample(items: list[str], limit: int = 5) -> str:
 
 
 def probe_wrong_repo_layer(target: str) -> list[Finding]:
-    """Rule 1: target root is a coding-root layer containing nested project repos."""
+    """Rule 1: target root is a coding-root *layer* containing nested project repos.
+
+    Gated on the coding-root marker (like the rule-2 workspace side): the
+    "wrong repo layer" hazard is specifically that git/gh at the marker-bearing
+    coding-root resolve to that layer rather than a nested project's own repo.
+    A markerless repo that merely contains a nested ``.git`` -- for example a git
+    submodule's gitlink, or a vendored checkout -- is an ordinary repository, not
+    a coding-root, so it is not flagged here (false-positive suppression). The
+    marker convention is the same path-only signal used everywhere in section 6.
+    """
+    if not _has_marker(target):
+        return []
     nested = find_nested_repos(target)
     if not nested:
         return []
@@ -344,7 +387,12 @@ def probe_active_parallel_sessions(target: str, now: float | None = None) -> lis
             timestamp, name = int(parts[0]), parts[1]
             if current is not None and name == current:
                 continue
-            if moment - timestamp < _RECENT_SECONDS:
+            delta = moment - timestamp
+            # Clock-skew guard: a commit dated in the future beyond the tolerance
+            # is a skewed-clock artifact, not a genuine just-now commit, so it is
+            # not counted as a concurrent signal. Minor skew (within tolerance)
+            # and any commit in the last hour still count.
+            if -_CLOCK_SKEW_TOLERANCE <= delta < _RECENT_SECONDS:
                 recent.append(name)
         if recent:
             signals.append(f"recent (<1h) commits on other branch(es): {', '.join(sorted(recent))}")
@@ -354,14 +402,17 @@ def probe_active_parallel_sessions(target: str, now: float | None = None) -> lis
     return [rules.RULE_ACTIVE_PARALLEL_SESSIONS.finding("; ".join(signals), evaluator="workspace")]
 
 
-#: Workspace probes in inventory (rule-number) order, for deterministic output.
-_WORKSPACE_PROBES = (
-    probe_wrong_repo_layer,
-    probe_broad_staging,
-    probe_worktree_branch_mismatch,
-    probe_stale_worktree,
-    probe_concurrent_state_files,
-    probe_active_parallel_sessions,
+#: Workspace probes paired with the rule each raises, in inventory (rule-number)
+#: order, for deterministic output. The pairing lets :func:`run_workspace_probes`
+#: attribute a git-timeout ``unknown`` finding to the rule whose probe stalled.
+#: (The ``now``-taking probes are callable with a single ``target`` argument.)
+_WORKSPACE_PROBES: tuple[tuple[Rule, Callable[[str], list[Finding]]], ...] = (
+    (rules.RULE_WRONG_REPO_LAYER, probe_wrong_repo_layer),
+    (rules.RULE_BROAD_STAGING, probe_broad_staging),
+    (rules.RULE_WORKTREE_BRANCH_MISMATCH, probe_worktree_branch_mismatch),
+    (rules.RULE_STALE_WORKTREE, probe_stale_worktree),
+    (rules.RULE_CONCURRENT_STATE_FILES, probe_concurrent_state_files),
+    (rules.RULE_ACTIVE_PARALLEL_SESSIONS, probe_active_parallel_sessions),
 )
 
 
@@ -369,9 +420,26 @@ def run_workspace_probes(target: str) -> list[Finding]:
     """Run every workspace probe against ``target`` and concatenate the findings.
 
     Findings are returned in inventory (rule-number) order so text and JSON
-    reports are deterministic regardless of which probes fire.
+    reports are deterministic regardless of which probes fire. If a probe's git
+    subprocess exceeds the per-call timeout (:class:`GitTimeout`), that probe
+    contributes an ``unknown`` finding for its rule instead of silently dropping
+    out -- a hung git is an incomplete evaluation, never a clean pass (section 8).
     """
     findings: list[Finding] = []
-    for probe in _WORKSPACE_PROBES:
-        findings.extend(probe(target))
+    for rule, probe in _WORKSPACE_PROBES:
+        try:
+            findings.extend(probe(target))
+        except GitTimeout as exc:
+            observed = (
+                f"git subprocess exceeded the {_GIT_TIMEOUT:g}s per-call timeout while "
+                f"evaluating this rule ({exc}); evaluation incomplete"
+            )
+            findings.append(
+                rule.finding(
+                    observed,
+                    evaluator="workspace",
+                    severity="unknown",
+                    message=_GIT_TIMEOUT_MESSAGE,
+                )
+            )
     return findings

@@ -27,13 +27,15 @@ from collections.abc import Sequence
 
 from tripwire.command import classify
 from tripwire.models import ExitCode, Report, exit_code_for
-from tripwire.workspace import resolve_target, run_workspace_probes
+from tripwire.workspace import GitTimeout, resolve_target, run_workspace_probes
 
 #: Unicode general categories treated as unsafe to echo raw in the text report:
-#: control (``Cc`` -- C0/DEL/C1) and format (``Cf`` -- zero-width / BiDi overrides,
-#: the Trojan-source vector). Escaped to a visible ``\xNN`` so evidence is
-#: preserved without being interpreted by the terminal.
-_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf"})
+#: control (``Cc`` -- C0/DEL/C1), format (``Cf`` -- zero-width / BiDi overrides,
+#: the Trojan-source vector), and the Unicode line/paragraph separators (``Zl`` --
+#: U+2028, ``Zp`` -- U+2029) which start a new visual line and so enable the same
+#: log-spoofing / line-injection as a raw newline. Escaped to a visible ``\xNN``
+#: so evidence is preserved without being interpreted by the terminal.
+_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -108,7 +110,14 @@ def _handle_check(args: argparse.Namespace) -> int:
     invalid input and returns exit 2, never a heuristic fallback.
     """
     start = os.path.abspath(args.root) if args.root is not None else os.getcwd()
-    target = resolve_target(start)
+    try:
+        target = resolve_target(start)
+    except GitTimeout:
+        sys.stderr.write(
+            "tripwire: git did not respond within the timeout while resolving the target "
+            "root; evaluation is incomplete (exit 2), never treated as a clean pass\n"
+        )
+        return int(ExitCode.INVALID)
     if target is None:
         sys.stderr.write(
             f"tripwire: no enclosing git repository at {start!r} and no valid --root; "
@@ -161,12 +170,14 @@ def _emit(report: Report, *, as_json: bool, empty_note: str | None = None) -> No
 def _sanitize(text: str) -> str:
     """Escape control/non-printable characters in untrusted text for the text report.
 
-    The classified command (``report.target``) and its ``observed`` evidence carry
-    attacker-influenced tokens; a raw terminal escape or newline echoed into the
-    report is a terminal-injection / log-spoofing vector. Control (``Cc``) and
-    format (``Cf``) characters are rendered as visible ``\\xNN`` escapes so the
-    evidence is preserved without being interpreted by the terminal. The JSON path
-    serializes via ``json.dumps`` and is already safe, so it is left untouched.
+    The classified command (``report.target``), each finding's ``observed``
+    evidence, and its ``message`` (which now carries derived suggestion text)
+    carry attacker-influenced tokens; a raw terminal escape, newline, or Unicode
+    line separator echoed into the report is a terminal-injection / log-spoofing
+    vector. Control (``Cc``), format (``Cf``) and line/paragraph-separator (``Zl``/
+    ``Zp``) characters are rendered as visible ``\\xNN`` escapes so the evidence is
+    preserved without being interpreted by the terminal. The JSON path serializes
+    via ``json.dumps`` and is already safe, so it is left untouched.
     """
     return "".join(
         f"\\x{ord(ch):02x}" if unicodedata.category(ch) in _UNSAFE_CATEGORIES else ch for ch in text
@@ -176,16 +187,18 @@ def _sanitize(text: str) -> str:
 def _render_text(report: Report, *, empty_note: str | None = None) -> str:
     """Render a report as a compact, deterministic text block.
 
-    Untrusted fields (the classified ``target`` and each finding's ``observed``
-    evidence) are passed through :func:`_sanitize`; registry-owned message and
-    provenance text is trusted and rendered as-is.
+    Untrusted-derived fields (the classified ``target``, each finding's
+    ``observed`` evidence, and its ``message`` -- which now folds in
+    substitution-derived suggestion text) are passed through :func:`_sanitize`.
+    The rule id, severity and registry-owned provenance are trusted enumerations
+    and rendered as-is.
     """
     lines = [f"target: {_sanitize(report.target)}"]
     if not report.findings:
         lines.append(empty_note if empty_note is not None else "no findings")
         return "\n".join(lines)
     for finding in report.findings:
-        lines.append(f"[{finding.severity}] {finding.rule_id}: {finding.message}")
+        lines.append(f"[{finding.severity}] {finding.rule_id}: {_sanitize(finding.message)}")
         lines.append(f"    observed: {_sanitize(finding.observed)}")
         lines.append(f"    provenance: {finding.provenance}")
     return "\n".join(lines)
