@@ -5,11 +5,12 @@ Exposes two subcommands whose argument surface is final:
 * ``tripwire check [--root <path>] [--json]`` -- workspace preflight
 * ``tripwire command explain [--json] -- <command>`` -- command-text risk
 
-For this build step the handlers are deliberate stubs: they resolve the
-argument surface, emit a well-formed empty :class:`~tripwire.models.Report`,
-and return the mapped exit code. The workspace/rule/command logic lands in
-build steps 2-4 (see ``plans/plan.md`` section 7); the exit-code and JSON
-shapes it will produce are already fixed by :mod:`tripwire.models`.
+``check`` is wired to the read-only workspace probes as of build step 2: it
+resolves the target root per ``plans/plan.md`` section 6 (enclosing git root of
+cwd, or ``--root``; no enclosing repository is invalid input -> exit 2), runs
+the workspace probes for rules 1-6, and renders a text or ``--json`` report.
+``command explain`` remains a deliberate stub emitting a well-formed empty
+report; its classification logic lands in build step 3.
 """
 
 from __future__ import annotations
@@ -19,7 +20,8 @@ import os
 import sys
 from collections.abc import Sequence
 
-from tripwire.models import Report, exit_code_for
+from tripwire.models import ExitCode, Report, exit_code_for
+from tripwire.workspace import resolve_target, run_workspace_probes
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,15 +89,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _handle_check(args: argparse.Namespace) -> int:
-    """Stub ``check`` handler: resolve the target root, emit an empty report.
+    """``check`` handler: resolve the target root, run workspace probes, report.
 
-    Real git-root resolution and read-only probes land in build step 2; here
-    the target is simply the absolute ``--root`` (or cwd) so the argument
-    surface and report shape are exercised end-to-end.
+    Target-root resolution follows ``plans/plan.md`` section 6: the enclosing
+    git root of ``--root`` (or the cwd) is probed; no enclosing repository is
+    invalid input and returns exit 2, never a heuristic fallback.
     """
-    root = args.root if args.root is not None else os.getcwd()
-    target = os.path.abspath(root)
-    report = Report(target=target, findings=[])
+    start = os.path.abspath(args.root) if args.root is not None else os.getcwd()
+    target = resolve_target(start)
+    if target is None:
+        sys.stderr.write(
+            f"tripwire: no enclosing git repository at {start!r} and no valid --root; "
+            "nothing to check (invalid input, exit 2)\n"
+        )
+        return int(ExitCode.INVALID)
+    report = Report(target=target, findings=run_workspace_probes(target))
     _emit(report, as_json=bool(args.json))
     return int(exit_code_for(report))
 

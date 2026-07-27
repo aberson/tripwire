@@ -144,6 +144,7 @@ requires. Steps 2 and 3 implement from this table.
 - **Produces:** `rules.py`, `workspace.py`, `tripwire check` (default target = enclosing git root of cwd, `--root <path>` override per §6 target-root resolution), JSON/text reports
 - **Done when:** every frozen bad fixture emits its expected stable rule ID in the §6 `TW-<AREA>-<NNN>@v<M>` format; clean fixtures stay clean; baseline check completes in under 10 seconds
 - **Depends on:** 1
+- **Status:** DONE (2026-07-27)
 
 <!-- autofix-applied: 2026-07-25 -->
 ### Step 3: Fold in command-risk explanation
