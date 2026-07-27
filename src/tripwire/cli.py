@@ -9,8 +9,12 @@ Exposes two subcommands whose argument surface is final:
 resolves the target root per ``plans/plan.md`` section 6 (enclosing git root of
 cwd, or ``--root``; no enclosing repository is invalid input -> exit 2), runs
 the workspace probes for rules 1-6, and renders a text or ``--json`` report.
-``command explain`` remains a deliberate stub emitting a well-formed empty
-report; its classification logic lands in build step 3.
+``command explain`` is wired to the command classifier as of build step 3: it
+joins the text after ``--``, classifies it against the command-evaluator rules
+(2, 7, 8, 9, 10), and renders a text or ``--json`` report. Empty or unparseable
+command text is invalid input (exit 2, at the CLI boundary); a parsed command
+that matches no documented risky pattern is reported as "no known risky pattern"
+and never as a safety endorsement (plan section 8, "False assurance").
 """
 
 from __future__ import annotations
@@ -18,10 +22,18 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import unicodedata
 from collections.abc import Sequence
 
+from tripwire.command import classify
 from tripwire.models import ExitCode, Report, exit_code_for
 from tripwire.workspace import resolve_target, run_workspace_probes
+
+#: Unicode general categories treated as unsafe to echo raw in the text report:
+#: control (``Cc`` -- C0/DEL/C1) and format (``Cf`` -- zero-width / BiDi overrides,
+#: the Trojan-source vector). Escaped to a visible ``\xNN`` so evidence is
+#: preserved without being interpreted by the terminal.
+_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf"})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -109,34 +121,72 @@ def _handle_check(args: argparse.Namespace) -> int:
 
 
 def _handle_command_explain(args: argparse.Namespace) -> int:
-    """Stub ``command explain`` handler: echo the target, emit an empty report.
+    """``command explain`` handler: classify the trailing command text, report.
 
-    Real tokenization and classification land in build step 3; here the target
-    is the joined command text so the ``-- <command>`` surface is exercised.
+    The text after ``--`` is joined and classified against the command-evaluator
+    rules. Empty or unparseable input is invalid input (exit 2, at this boundary,
+    mirroring ``check``); a parsed command with no risky match is rendered with a
+    non-endorsing note so a no-finding result never reads as a safety guarantee
+    (plan section 8).
     """
     command_text = " ".join(args.command_text)
-    report = Report(target=command_text, findings=[])
-    _emit(report, as_json=bool(args.json))
+    result = classify(command_text)
+    if result.invalid_reason is not None:
+        sys.stderr.write(f"tripwire: {result.invalid_reason} (invalid input, exit 2)\n")
+        return int(ExitCode.INVALID)
+    report = Report(target=command_text, findings=list(result.findings))
+    _emit(
+        report,
+        as_json=bool(args.json),
+        empty_note=(
+            "no known risky pattern matched (tripwire flags only documented "
+            "high-confidence patterns; this is not a safety guarantee)"
+        ),
+    )
     return int(exit_code_for(report))
 
 
-def _emit(report: Report, *, as_json: bool) -> None:
-    """Render a report to stdout as JSON or human-readable text."""
+def _emit(report: Report, *, as_json: bool, empty_note: str | None = None) -> None:
+    """Render a report to stdout as JSON or human-readable text.
+
+    ``empty_note`` overrides the text rendered for a zero-finding report (used by
+    ``command explain`` so an empty result is not mistaken for an endorsement).
+    """
     if as_json:
         print(report.to_json(indent=2))
     else:
-        print(_render_text(report))
+        print(_render_text(report, empty_note=empty_note))
 
 
-def _render_text(report: Report) -> str:
-    """Render a report as a compact, deterministic text block."""
-    lines = [f"target: {report.target}"]
+def _sanitize(text: str) -> str:
+    """Escape control/non-printable characters in untrusted text for the text report.
+
+    The classified command (``report.target``) and its ``observed`` evidence carry
+    attacker-influenced tokens; a raw terminal escape or newline echoed into the
+    report is a terminal-injection / log-spoofing vector. Control (``Cc``) and
+    format (``Cf``) characters are rendered as visible ``\\xNN`` escapes so the
+    evidence is preserved without being interpreted by the terminal. The JSON path
+    serializes via ``json.dumps`` and is already safe, so it is left untouched.
+    """
+    return "".join(
+        f"\\x{ord(ch):02x}" if unicodedata.category(ch) in _UNSAFE_CATEGORIES else ch for ch in text
+    )
+
+
+def _render_text(report: Report, *, empty_note: str | None = None) -> str:
+    """Render a report as a compact, deterministic text block.
+
+    Untrusted fields (the classified ``target`` and each finding's ``observed``
+    evidence) are passed through :func:`_sanitize`; registry-owned message and
+    provenance text is trusted and rendered as-is.
+    """
+    lines = [f"target: {_sanitize(report.target)}"]
     if not report.findings:
-        lines.append("no findings")
+        lines.append(empty_note if empty_note is not None else "no findings")
         return "\n".join(lines)
     for finding in report.findings:
         lines.append(f"[{finding.severity}] {finding.rule_id}: {finding.message}")
-        lines.append(f"    observed: {finding.observed}")
+        lines.append(f"    observed: {_sanitize(finding.observed)}")
         lines.append(f"    provenance: {finding.provenance}")
     return "\n".join(lines)
 

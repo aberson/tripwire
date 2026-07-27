@@ -8,13 +8,15 @@ expose one or both evaluators without duplicating policy text.
 Rule identifiers use the versioned categorical format ``TW-<AREA>-<NNN>@v<M>``
 (section 6, "Rule identifiers"); ``AREA`` is one of {GIT, WTR, SES, CMD, SHL,
 SEC} and ``NNN`` is scoped per area. IDs are defined once here and consumed by
-``workspace.py`` (and, in build step 3, ``command.py``), fixtures, and JSON
-reports. A semantic change bumps ``@v<M>``; an id is never reused or re-meant.
+``workspace.py``, ``command.py``, fixtures, and JSON reports. A semantic change
+bumps ``@v<M>``; an id is never reused or re-meant.
 
-This build implements only the workspace-evaluator surface for rules 1-6 (build
-step 2). The command-evaluator rules (2's command side, plus 7-10) are
-*registered here as metadata* so the registry is complete, but their evaluation
-logic lands in build step 3 -- nothing in this module wires command evaluation.
+Both evaluator surfaces are now wired: ``workspace.py`` implements the
+workspace-evaluator rules 1-6 (build step 2) and ``command.py`` implements the
+command-evaluator rules -- rule 2's command side plus 7-10 (build step 3). Each
+consumer imports the ``Rule`` objects below and calls :meth:`Rule.finding` with
+its evaluator; this registry stays the single owner of every rule's id,
+severity, message and provenance.
 """
 
 from __future__ import annotations
@@ -76,9 +78,9 @@ class Rule:
 
 # --- V1 rule inventory (plans/plan.md section 6) ----------------------------
 #
-# Rows 1-6 expose the workspace evaluator implemented in build step 2. Row 2
+# Rows 1-6 expose the workspace evaluator (build step 2, workspace.py). Row 2
 # also exposes the command evaluator; rows 7-10 are command-only. The command
-# surfaces are metadata here and are wired in build step 3.
+# surfaces are implemented in build step 3 (command.py).
 
 # Row 1 -- workspace.
 RULE_WRONG_REPO_LAYER = Rule(
@@ -164,8 +166,8 @@ RULE_ACTIVE_PARALLEL_SESSIONS = Rule(
     evaluators=("workspace",),
 )
 
-# Rows 7-10 -- command-only. Registered for a complete registry; evaluation
-# logic lands in build step 3 (command.py). No workspace probe raises these.
+# Rows 7-10 -- command-only. Implemented by command.py (build step 3); no
+# workspace probe raises these.
 RULE_DESTRUCTIVE_GIT = Rule(
     id="TW-GIT-003@v1",
     title="Destructive git (reset --hard, push --force, checkout --)",

@@ -155,6 +155,7 @@ requires. Steps 2 and 3 implement from this table.
 - **Produces:** `command.py`, command findings, safer-form suggestions where deterministic
 - **Done when:** risky fixtures match expected IDs, scoped equivalents avoid the same high-risk finding, and ambiguous commands return unknown/warn rather than pass
 - **Depends on:** 1, 2
+- **Status:** DONE (2026-07-27)
 
 <!-- autofix-applied: 2026-07-25 -->
 ### Step 4: Harden Windows parsing and report behavior

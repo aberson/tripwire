@@ -1,9 +1,12 @@
-"""Tests for the tripwire CLI argument surface and the wired ``check`` handler.
+"""Tests for the tripwire CLI argument surface and the wired handlers.
 
 ``check`` is wired to the real workspace probes as of build step 2, so these
-tests drive it through fixtures (via ``--root``) rather than the Step-1 stub's
-always-empty report. ``command explain`` remains a Step-1 stub (its logic lands
-in build step 3), so its tests still assert an empty report.
+tests drive it through fixtures (via ``--root``). ``command explain`` is wired to
+the command classifier as of build step 3: risky command text now produces
+findings + the mapped exit code, empty/unparseable text is invalid input
+(exit 2), and a benign parsed command is reported without an endorsement. The two
+former Step-1 stub tests (which asserted an always-empty report for real risky
+commands) are replaced by the risky-path tests below.
 """
 
 from __future__ import annotations
@@ -97,24 +100,59 @@ def test_check_invalid_root_exits_2_with_error(
     assert "no enclosing git repository" in err
 
 
-def test_command_explain_accepts_trailing_command(
+def test_command_explain_flags_destructive_git_with_exit_1(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     code = main(["command", "explain", "--", "git", "reset", "--hard"])
     out = capsys.readouterr().out
-    assert code == 0
+    assert code == 1  # fail-severity finding blocks
     assert "git reset --hard" in out
-    assert "no findings" in out
+    assert "TW-GIT-003@v1" in out
 
 
-def test_command_explain_json_emits_command_as_target(
+def test_command_explain_json_flags_force_push(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     code = main(["command", "explain", "--json", "--", "git", "push", "--force"])
     payload = json.loads(capsys.readouterr().out)
-    assert code == 0
+    assert code == 1
     assert payload["target"] == "git push --force"
-    assert payload["findings"] == []
+    ids = [finding["rule_id"] for finding in payload["findings"]]
+    assert "TW-GIT-003@v1" in ids
+
+
+def test_command_explain_benign_command_is_not_endorsed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(["command", "explain", "--", "ls", "-la"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "not a safety guarantee" in out
+
+
+def test_command_explain_empty_is_invalid_input_exit_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(["command", "explain", "--"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "no command text" in err
+
+
+def test_text_report_escapes_control_characters_in_untrusted_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A terminal escape smuggled into a command token must not reach the terminal raw.
+
+    The text renderer sanitizes the untrusted ``target`` and ``observed`` fields;
+    a raw ESC is rendered as a visible ``\\x1b`` escape instead (log-spoofing /
+    terminal-injection defense). The JSON path is already safe and is not changed.
+    """
+    code = main(["command", "explain", "--", "cat", "secrets\x1b[31m.env"])
+    out = capsys.readouterr().out
+    assert code == 1  # secrets-bearing dump -> fail
+    assert "\x1b" not in out  # raw escape neutralized
+    assert "\\x1b" in out  # rendered as a visible escape instead
 
 
 def test_missing_subcommand_errors_with_exit_2() -> None:
