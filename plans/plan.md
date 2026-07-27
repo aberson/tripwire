@@ -128,7 +128,7 @@ requires. Steps 2 and 3 implement from this table.
 ### Step 1: Scaffold the project and report contract
 - **Problem:** Create the uv package, CLI shell, canonical typed finding/report shapes, and quality gates.
 - **Type:** code
-- **Issue:** #
+- **Issue:** #1
 - **Flags:** --reviewers code --isolation worktree
 - **Produces:** project scaffold, `models.py`, CLI entry point, baseline tests
 - **Done when:** `uv sync --extra dev`, pytest, Ruff, and mypy strict pass
@@ -138,7 +138,7 @@ requires. Steps 2 and 3 implement from this table.
 ### Step 2: Build the rule registry and workspace preflight
 - **Problem:** Implement the workspace-evaluator rules from the §6 V1 rule inventory: evidence-backed read-only checks for cwd, git root, branch/worktree, staged scope, and concurrent state files.
 - **Type:** code
-- **Issue:** #
+- **Issue:** #2
 - **Flags:** --reviewers deep --isolation worktree
 - **Produces:** `rules.py`, `workspace.py`, `tripwire check` (default target = enclosing git root of cwd, `--root <path>` override per §6 target-root resolution), JSON/text reports
 - **Done when:** every frozen bad fixture emits its expected stable rule ID in the §6 `TW-<AREA>-<NNN>@v<M>` format; clean fixtures stay clean; baseline check completes in under 10 seconds
@@ -148,7 +148,7 @@ requires. Steps 2 and 3 implement from this table.
 ### Step 3: Fold in command-risk explanation
 - **Problem:** Implement `tripwire command explain -- <command>` for the command-evaluator rules in the §6 V1 rule inventory — every row whose Evaluator column includes `command` (rules 2, 7, 8, 9, 10); the table is the sole rule list. This step extends the shared `rules.py` registry that Step 2 produces rather than creating a second one.
 - **Type:** code
-- **Issue:** #
+- **Issue:** #3
 - **Flags:** --reviewers deep --isolation worktree
 - **Produces:** `command.py`, command findings, safer-form suggestions where deterministic
 - **Done when:** risky fixtures match expected IDs, scoped equivalents avoid the same high-risk finding, and ambiguous commands return unknown/warn rather than pass
@@ -158,7 +158,7 @@ requires. Steps 2 and 3 implement from this table.
 ### Step 4: Harden Windows parsing and report behavior
 - **Problem:** Cover quoting, PowerShell 5.1 syntax, executable aliases, path casing, separators, malformed input, and deterministic JSON ordering.
 - **Type:** code
-- **Issue:** #
+- **Issue:** #4
 - **Flags:** --reviewers deep --isolation worktree
 - **Produces:** expanded fixture pack and error-path tests
 - **Done when:** reports are deterministic; malformed input exits 2; suggested PowerShell commands parse in the supported shell subset
@@ -167,7 +167,7 @@ requires. Steps 2 and 3 implement from this table.
 ### Step 5: Validate the CLI against real workspace cases
 - **Problem:** Run the production CLI read-only against the dev workspace and a disposable fixture repository, recording false positives and runtime without changing either target.
 - **Type:** code
-- **Issue:** #
+- **Issue:** #5
 - **Flags:** --reviewers code --isolation worktree
 - **Produces:** `docs/findings/v1-validation.md`
 - **Done when:** all seeded failures are found, clean-case nuisance rate is below 5%, runtime is under 10 seconds, and every finding has evidence and provenance
