@@ -176,6 +176,7 @@ requires. Steps 2 and 3 implement from this table.
 - **Produces:** `docs/findings/v1-validation.md`
 - **Done when:** all seeded failures are found, clean-case nuisance rate is below 5%, runtime is under 10 seconds, and every finding has evidence and provenance
 - **Depends on:** 4
+- **Status:** DONE (2026-07-27)
 
 ## 8. Risks and Open Questions
 
