@@ -6,7 +6,8 @@ Drives the PRODUCTION CLI (``python -m tripwire.cli`` -- the exact ``main()`` th
 * six disposable fixture repos that each seed one workspace rule's bad state,
   reusing the ``tests/fixtures/repos.py`` builders,
 * the frozen risky/safe command corpora from ``tests/fixtures/commands.py``, and
-* the live dev workspace (``--dev-root``, default ``C:/Users/abero/dev``).
+* the live dev workspace (``--dev-root``; defaults to the ``TRIPWIRE_DEV_ROOT``
+  env var if set, else the current working directory).
 
 It builds every fixture in a throwaway temp dir, never writes to the dev
 workspace, and changes no production behaviour. Output is a structured text
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -41,7 +43,9 @@ from tests.fixtures import commands, repos  # noqa: E402  (path bootstrap above)
 #: would (``tripwire.cli:main``), using the current interpreter's environment.
 _CLI: tuple[str, ...] = (sys.executable, "-m", "tripwire.cli")
 
-_DEFAULT_DEV_ROOT = "C:/Users/abero/dev"
+# Neutral default: the ``TRIPWIRE_DEV_ROOT`` env var if set, else the current
+# working directory. Never a hard-coded personal path.
+_DEFAULT_DEV_ROOT = os.environ.get("TRIPWIRE_DEV_ROOT", os.getcwd())
 
 
 @dataclass(frozen=True)

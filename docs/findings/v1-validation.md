@@ -6,7 +6,7 @@ corpus, and the live dev workspace. No production behaviour was changed and no
 target was modified.
 
 - **Date:** 2026-07-27
-- **Commit under test:** `c987245` (step 4 complete) on branch `build-step-tw5-1785188403`
+- **Commit under test:** `c987245` (step 4 complete)
 - **CLI build:** `tripwire` 0.1.0 (`src/tripwire`), 190 tests passing
 - **Verdict:** **PASS** — 28/28 seeded failures detected, 0.0% clean-case nuisance
   rate, live-workspace check 0.37 s best-of-3 (budget 10 s), every finding carries
@@ -35,7 +35,7 @@ probes in-process, so the exercised path is identical to an operator/agent typin
   --json`. Real git state means the probes observe genuine repositories, not mocks.
 - **Command corpus:** each command passed as a single argument after `--` to
   `tripwire command explain --json`, so the CLI's own tokenizer/classifier runs.
-- **Live workspace:** `tripwire check --root C:/Users/abero/dev --json`, read-only.
+- **Live workspace:** `tripwire check --root <dev-root> --json`, read-only.
 - **Runtime:** wall-clock of the end-to-end subprocess (interpreter startup +
   probe execution) via `time.perf_counter()` — best-of-three (the minimum of three
   back-to-back live runs, which the harness itself performs and prints) for the live
@@ -43,7 +43,7 @@ probes in-process, so the exercised path is identical to an operator/agent typin
   fixture.
 - **Reproduce:**
   ```
-  uv run python scripts/validate_v1.py --dev-root C:/Users/abero/dev \
+  uv run python scripts/validate_v1.py --dev-root <dev-root> \
       --json-out <path>/dev-findings.json
   ```
 
@@ -130,22 +130,21 @@ the two shell-chain forms (`taskkill /T /F /PID 4242`, `git status; if ($?) { gi
 
 ## 4. Live dev-workspace findings
 
-`tripwire check --root C:/Users/abero/dev --json` — read-only, exit 0 (warn-only),
+`tripwire check --root <dev-root> --json` — read-only, exit 0 (warn-only),
 runtime 0.37 s (best of 3). Full JSON captured during the run; each finding below is
 quoted from the tool's own `observed` + `provenance` fields.
 
 | Rule ID | Sev | Verdict | Evidence (tool `observed`) | Provenance |
 |---|---|---|---|---|
-| `TW-GIT-002@v1` | warn | **TRUE positive** | `nested git repositories under target: Alpha4Gate, TripoSR, aberson-profile, aberson.github.io, agora (+35 more)` | `.claude/rules/working-directory.md` |
-| `TW-SES-001@v1` | warn | **TRUE positive** | `3 state file(s) at coding-root C:\Users\abero\dev: .plan-expedite-state.bak-plan-init-2026-05-25, .plan-expedite-state.claude-p-migration-uat-pending-1781630755, .plan-expedite-state.switchboard-phase-b-done-20260623` | `CLAUDE.md (Parallel session safety)` |
+| `TW-GIT-002@v1` | warn | **TRUE positive** | `nested git repositories under target: <sibling project repos redacted> (40 total)` | `.claude/rules/working-directory.md` |
+| `TW-SES-001@v1` | warn | **TRUE positive** | `3 state file(s) at coding-root <dev-root>: .plan-expedite-state.* (filenames redacted)` | `CLAUDE.md (Parallel session safety)` |
 | `TW-SES-002@v1` | warn | **TRUE positive** | `3 linked worktrees active` | `CLAUDE.md (Parallel session safety)` |
 
 **All three are true positives, not nuisance — the tool is correct about the live
 workspace:**
 
-- **`TW-GIT-002` (wrong-repo-layer):** `C:/Users/abero/dev` genuinely *is* a
-  coding-root layer with ~40 nested project repositories (Alpha4Gate, toybox,
-  switchboard's siblings, etc.). This is precisely the hazard the rule names: a
+- **`TW-GIT-002` (wrong-repo-layer):** `<dev-root>` genuinely *is* a
+  coding-root layer with ~40 nested project repositories. This is precisely the hazard the rule names: a
   `git`/`gh` run at the dev layer resolves to the dev repo, so a commit or broad
   stage there lands against the wrong repo layer. Correct to flag.
 - **`TW-SES-001` (concurrent state files):** three real `.plan-expedite-state.*`
@@ -169,7 +168,7 @@ section 6 exit contract: `warn`-only reports do not block.
 
 | Run | Wall-clock | Budget | Margin |
 |---|---|---|---|
-| Live dev check (`--root C:/Users/abero/dev`), best of 3 (0.376 / 0.367 / 0.389 s) | **0.37 s** | 10 s | ~27x |
+| Live dev check (`--root <dev-root>`), best of 3 (0.376 / 0.367 / 0.389 s) | **0.37 s** | 10 s | ~27x |
 | Clean coding-root fixture check | 0.353 s | 10 s | ~28x |
 | Seeded workspace fixtures (slowest of 6) | 0.529 s | 10 s | ~19x |
 

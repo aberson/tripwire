@@ -1,10 +1,6 @@
 # Seed Plan: tripwire
 
-<!-- decisions-applied: 2026-07-26 per dev/docs/plan-reviews/2026-07-25-utility/DECISIONS.md -->
-
 ## 1. What This Is
-
-Proposal: `../../docs/utility-project-proposal.html`
 
 Tripwire is a local-first utility project that turns known workspace failure modes into fast,
 evidence-bearing preflight checks. It provides `tripwire check` for repository/session state and
@@ -14,9 +10,9 @@ recurred despite written guidance.
 
 ## 2. Existing Context
 
-- The workspace already documents safety rules in `../../.claude/rules/` and concrete incidents in
-  `../../docs/friction-catalog.md`; Tripwire operationalizes a small high-confidence subset.
-- The original proposal is `../../docs/seeds/seed_tripwire.md`; `seed_tripwire_command.md` is folded
+- The workspace already documents safety rules in `.claude/rules/` and concrete incidents in
+  `docs/friction-catalog.md`; Tripwire operationalizes a small high-confidence subset.
+- The original proposal is `docs/seeds/seed_tripwire.md`; `seed_tripwire_command.md` is folded
   into this project rather than becoming a second rule owner.
 - Tripwire is a new standalone utility project and is fully independent: it takes no build, import,
   or project-name-specific dependency on any other utility project, and it works fully in isolation.
@@ -39,9 +35,9 @@ parsing, and assurances that an unflagged command is safe.
 | File | Change Type | Reason | Verified |
 |---|---|---|---|
 | `plans/plan.md` | add | Canonical project plan | Created from approved seed; no existing project code |
-| `../../docs/seeds/seed_tripwire.md` | read-only input | Baseline workspace-state proposal | Read directly; no edit planned |
-| `../../docs/seeds/seed_tripwire_command.md` | read-only input | Command classifier folded into Tripwire | Read directly; no edit planned |
-| `../../docs/friction-catalog.md` | read-only input | Source evidence for candidate rules | Grep confirmed recurring cwd/worktree/staging incidents |
+| `docs/seeds/seed_tripwire.md` | read-only input | Baseline workspace-state proposal | Read directly; no edit planned |
+| `docs/seeds/seed_tripwire_command.md` | read-only input | Command classifier folded into Tripwire | Read directly; no edit planned |
+| `docs/friction-catalog.md` | read-only input | Source evidence for candidate rules | Grep confirmed recurring cwd/worktree/staging incidents |
 
 No existing function signatures, schemas, or shared constants are modified in v1.
 
@@ -112,16 +108,16 @@ requires. Steps 2 and 3 implement from this table.
 
 | # | Rule | Evaluator | Source |
 |---|---|---|---|
-| 1 | Wrong-repo-layer commit target | workspace | `../../.claude/rules/working-directory.md` |
-| 2 | Broad staging / bare `git stash` at the coding-root | workspace, command | `../../.claude/rules/working-directory.md` |
-| 3 | Wrong-worktree branch mismatch | workspace | `../../CLAUDE.md` § Session wrap & commit discipline |
-| 4 | Stale worktree (>1 day or >3 commits behind) | workspace | `../../.claude/rules/worktree-hygiene.md` |
-| 5 | Concurrent `.plan-expedite-state.*` state files | workspace | `../../CLAUDE.md` § Parallel session safety |
-| 6 | Active worktrees / recent other-branch commits | workspace | `../../CLAUDE.md` § Parallel session safety |
-| 7 | Destructive git (`reset --hard`, `push --force`, `checkout --`) | command | `../../.claude/rules/worktree-hygiene.md` (merge-check before `--force`) + `../../docs/friction-catalog.md` (force-delete incidents) |
-| 8 | Name-based process kill (`taskkill /IM`, `Stop-Process -Name`) | command | `../../docs/lessons-learned.md` § Subprocess tree-kill on Windows (kill by PID, never by name) |
-| 9 | Shell mismatch (`&&`/bash-isms handed to PowerShell 5.1) | command | `../../.claude/rules/windows-shell.md` |
-| 10 | Secret-file dump via `cat`/`type`/`grep` | command | `../../.claude/rules/security.md` § Never dump secret file contents |
+| 1 | Wrong-repo-layer commit target | workspace | `.claude/rules/working-directory.md` |
+| 2 | Broad staging / bare `git stash` at the coding-root | workspace, command | `.claude/rules/working-directory.md` |
+| 3 | Wrong-worktree branch mismatch | workspace | `CLAUDE.md` § Session wrap & commit discipline |
+| 4 | Stale worktree (>1 day or >3 commits behind) | workspace | `.claude/rules/worktree-hygiene.md` |
+| 5 | Concurrent `.plan-expedite-state.*` state files | workspace | `CLAUDE.md` § Parallel session safety |
+| 6 | Active worktrees / recent other-branch commits | workspace | `CLAUDE.md` § Parallel session safety |
+| 7 | Destructive git (`reset --hard`, `push --force`, `checkout --`) | command | `.claude/rules/worktree-hygiene.md` (merge-check before `--force`) + `docs/friction-catalog.md` (force-delete incidents) |
+| 8 | Name-based process kill (`taskkill /IM`, `Stop-Process -Name`) | command | `docs/lessons-learned.md` § Subprocess tree-kill on Windows (kill by PID, never by name) |
+| 9 | Shell mismatch (`&&`/bash-isms handed to PowerShell 5.1) | command | `.claude/rules/windows-shell.md` |
+| 10 | Secret-file dump via `cat`/`type`/`grep` | command | `.claude/rules/security.md` § Never dump secret file contents |
 
 ## 7. Build Steps
 
@@ -135,7 +131,6 @@ requires. Steps 2 and 3 implement from this table.
 - **Depends on:** none
 - **Status:** DONE (2026-07-27)
 
-<!-- autofix-applied: 2026-07-25 -->
 ### Step 2: Build the rule registry and workspace preflight
 - **Problem:** Implement the workspace-evaluator rules from the §6 V1 rule inventory: evidence-backed read-only checks for cwd, git root, branch/worktree, staged scope, and concurrent state files.
 - **Type:** code
@@ -146,7 +141,6 @@ requires. Steps 2 and 3 implement from this table.
 - **Depends on:** 1
 - **Status:** DONE (2026-07-27)
 
-<!-- autofix-applied: 2026-07-25 -->
 ### Step 3: Fold in command-risk explanation
 - **Problem:** Implement `tripwire command explain -- <command>` for the command-evaluator rules in the §6 V1 rule inventory — every row whose Evaluator column includes `command` (rules 2, 7, 8, 9, 10); the table is the sole rule list. This step extends the shared `rules.py` registry that Step 2 produces rather than creating a second one.
 - **Type:** code
@@ -157,7 +151,6 @@ requires. Steps 2 and 3 implement from this table.
 - **Depends on:** 1, 2
 - **Status:** DONE (2026-07-27)
 
-<!-- autofix-applied: 2026-07-25 -->
 ### Step 4: Harden Windows parsing and report behavior
 - **Problem:** Cover quoting, PowerShell 5.1 syntax, executable aliases, path casing, separators, malformed input, and deterministic JSON ordering.
 - **Type:** code
