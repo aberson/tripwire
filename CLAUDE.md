@@ -22,6 +22,7 @@ Shell: PowerShell (primary) on Windows; commands are shell-agnostic via uv.
 - `uv run mypy --strict src` — types
 - `uv run tripwire check [--root <path>] [--json]` — workspace preflight
 - `uv run tripwire command explain [--json] -- <command>` — command-text risk explanation
+- `powershell -ExecutionPolicy Bypass -File docs/tour/open-tour.ps1` — open the guided tour page
 
 ## Layout
 

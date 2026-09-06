@@ -1,0 +1,436 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tripwire Tour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap">
+<style>
+  :root {
+    --ground:   #171310;
+    --surface:  #201A15;
+    --surface2: #2A231C;
+    --ink:      #EFE7D9;
+    --ink-soft: #B3A896;
+    --ink-faint:#7E7466;
+    --gold:     #D9A945;
+    --gold-dim: #8F7434;
+    --ok:       #8CC79A;
+    --warn:     #DDB05A;
+    --block:    #E58B7D;
+    --rule:     #383028;
+    --display: "Fraunces", Georgia, "Times New Roman", serif;
+    --sans: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 0 5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--gold); text-decoration-color: var(--gold-dim); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  img { max-width: 100%; display: block; }
+
+  .stopnav {
+    position: sticky; top: 0; z-index: 5;
+    background: #12100D;
+    border-bottom: 1px solid var(--rule);
+    padding: 0.55rem 1.2rem;
+    display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; align-items: baseline;
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em;
+  }
+  .stopnav .rt { color: var(--ink-faint); margin-left: auto; white-space: nowrap; }
+  .stopnav a { color: var(--ink-soft); text-decoration: none; }
+  .stopnav a:hover { color: var(--gold); }
+  .stopnav a b { color: var(--gold); font-weight: 600; margin-right: 0.25em; }
+
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.3rem; }
+
+  .masthead { padding: 3.2rem 0 2.2rem; }
+  .kicker {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--gold); margin: 0 0 1rem;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 650;
+    font-size: clamp(2.3rem, 6vw, 3.6rem); line-height: 1.04;
+    letter-spacing: -0.015em; margin: 0 0 1rem; text-wrap: balance;
+  }
+  .dek { font-size: 1.12rem; color: var(--ink-soft); max-width: 48ch; margin: 0 0 1.8rem; }
+  .dek strong { color: var(--ink); font-weight: 600; }
+  .facts {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.85rem 2.2rem;
+    border-top: 2px solid var(--gold-dim); border-bottom: 1px solid var(--rule);
+    padding: 0.95rem 0; margin: 0;
+    font-family: var(--mono); font-size: 0.78rem;
+  }
+  .facts div { display: flex; flex-direction: column; gap: 0.15rem; }
+  .facts dt { color: var(--ink-faint); font-size: 0.64rem; letter-spacing: 0.1em; text-transform: uppercase; }
+  .facts dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  .stop { display: grid; grid-template-columns: 4.2rem 1fr; gap: 1.4rem; padding: 2.8rem 0 2.4rem; border-top: 1px solid var(--rule); }
+  .stop:first-of-type { border-top: none; }
+  .stop > div { min-width: 0; }
+  .stop-rail { text-align: right; }
+  .stop-no { font-family: var(--display); font-weight: 650; font-size: 2.1rem; line-height: 1; color: var(--gold); }
+  .stop-min { font-family: var(--mono); font-size: 0.64rem; color: var(--ink-faint); letter-spacing: 0.08em; margin-top: 0.4rem; }
+  .stop h2 {
+    font-family: var(--display); font-weight: 650; font-size: 1.55rem;
+    line-height: 1.15; margin: 0 0 0.45rem; letter-spacing: -0.01em; text-wrap: balance;
+  }
+  .pitch { color: var(--ink-soft); margin: 0 0 1.2rem; max-width: 62ch; }
+  .pitch strong { color: var(--ink); font-weight: 600; }
+  .pitch code { font-family: var(--mono); font-size: 0.85em; background: var(--surface2); border: 1px solid var(--rule); border-radius: 3px; padding: 0.08em 0.35em; }
+
+  .shot { background: #14110E; border: 1px solid var(--rule); border-radius: 6px; padding: 0.55rem; margin: 0 0 0.9rem; }
+  .shot img { border-radius: 3px; }
+  .shot figcaption { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-faint); padding: 0.5rem 0.2rem 0.1rem; }
+  .shot figcaption .chip { margin-right: 0.5em; }
+  .shot .hint { display: none; color: var(--ink-soft); }
+
+  .chip {
+    display: inline-block; font-family: var(--mono); font-size: 0.63rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid currentColor; border-radius: 2px; padding: 0.12em 0.5em;
+  }
+  .chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.block { color: var(--block); }
+
+  .term {
+    background: #100D0A; border: 1px solid var(--rule); border-left: 3px solid var(--gold-dim);
+    border-radius: 4px; padding: 0.9rem 1.1rem; margin: 0 0 0.35rem;
+    font-family: var(--mono); font-size: 0.78rem; line-height: 1.55;
+    overflow-x: auto; color: var(--ink-soft); white-space: pre-wrap;
+  }
+  .term .cmd { color: var(--ink); font-weight: 600; }
+  .term .w { color: var(--warn); }
+  .term .f { color: var(--block); }
+  .term .p { color: var(--gold); }
+  .exline {
+    font-family: var(--mono); font-size: 0.68rem; color: var(--ink-faint);
+    margin: 0 0 1.1rem; padding-left: 0.15rem;
+  }
+  .exline .chip { margin-right: 0.5em; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; margin: 0 0 0.9rem; }
+  th { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-faint); text-align: left; padding: 0.4rem 0.9rem 0.4rem 0; border-bottom: 1px solid var(--rule); }
+  td { padding: 0.42rem 0.9rem 0.42rem 0; border-bottom: 1px solid var(--rule); color: var(--ink-soft); vertical-align: top; }
+  td:first-child { color: var(--ink); }
+  td code, th code { font-family: var(--mono); font-size: 0.92em; overflow-wrap: anywhere; }
+  td:first-child code { white-space: nowrap; }
+
+  .tryit {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.7rem; align-items: baseline;
+    font-family: var(--mono); font-size: 0.78rem; margin: 0.2rem 0 0.5rem;
+  }
+  .tryit .lbl { color: var(--gold); font-size: 0.63rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+  .tryit code { background: var(--surface2); border: 1px solid var(--rule); border-radius: 3px; padding: 0.18em 0.5em; overflow-wrap: anywhere; color: var(--ink); }
+  .links { font-size: 0.85rem; color: var(--ink-faint); }
+  .links a { margin-right: 1.1em; }
+
+  .setlists { margin-top: 3rem; border-top: 2px solid var(--gold-dim); padding-top: 1.6rem; }
+  .setlists h2 { font-family: var(--display); font-weight: 650; font-size: 1.4rem; margin: 0 0 0.3rem; }
+  .setlists .sub { font-family: var(--mono); font-size: 0.7rem; color: var(--ink-faint); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 1.1rem; }
+
+  footer { margin-top: 3rem; font-family: var(--mono); font-size: 0.68rem; color: var(--ink-faint); border-top: 1px solid var(--rule); padding-top: 1rem; }
+
+  @media (max-width: 640px) {
+    .stop { grid-template-columns: 1fr; gap: 0.3rem; }
+    .stop-rail { text-align: left; display: flex; gap: 0.7rem; align-items: baseline; }
+    .facts { grid-template-columns: repeat(2, 1fr); }
+    .shot { overflow-x: auto; }
+    .shot img { min-width: 46rem; }
+    .shot .hint { display: inline; }
+    table.rules, table.rules tbody, table.rules tr, table.rules td,
+    table.fam, table.fam tbody, table.fam tr, table.fam td { display: block; width: 100%; }
+    table.rules thead, table.fam thead { display: none; }
+    table.rules tr, table.fam tr { border-bottom: 1px solid var(--rule); padding: 0.55rem 0; }
+    table.rules td, table.fam td { border-bottom: none; padding: 0.06rem 0; }
+    table.rules td:nth-child(1), table.rules td:nth-child(2) { display: inline-block; width: auto; margin-right: 0.6em; }
+    table.rules td:nth-child(3) { color: var(--ink); margin-top: 0.2rem; }
+    table.rules td:nth-child(4)::before { content: "source: "; color: var(--ink-faint); }
+    table.fam td:nth-child(2) { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-faint); }
+  }
+</style>
+
+<nav class="stopnav" aria-label="Tour stops">
+  <a href="#s1"><b>1</b>what it is</a>
+  <a href="#s2"><b>2</b>the receipt</a>
+  <a href="#s3"><b>3</b>the ten rules</a>
+  <a href="#s4"><b>4</b>graded before release</a>
+  <a href="#s5"><b>5</b>the family</a>
+  <span class="rt">&approx;8 min read</span>
+</nav>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="kicker">tripwire &middot; a preflight check for commands you are about to run</p>
+  <h1>tripwire</h1>
+  <p class="dek">A command-line tool that reads the command you are about to run &mdash; or the
+  state of the folder you are about to work in &mdash; and tells you
+  <strong>which known past mistake you are about to repeat</strong>, citing the written rule that
+  mistake came from. It never runs the command you hand it, changes nothing, and it will not
+  tell you a command is safe.</p>
+  <dl class="facts">
+    <div><dt>rules</dt><dd>10 &mdash; 6 warn, 4 fail</dd></div>
+    <div><dt>tests</dt><dd>190 passing</dd></div>
+    <div><dt>seeded failures caught</dt><dd>28 of 28</dd></div>
+    <div><dt>false positives</dt><dd>0 of 25 clean trials</dd></div>
+    <div><dt>runtime dependencies</dt><dd>0</dd></div>
+    <div><dt>live check</dt><dd>0.37 s (budget 10 s)</dd></div>
+  </dl>
+</header>
+
+<!-- STOP 1 -->
+<section class="stop" id="s1">
+  <div class="stop-rail"><div class="stop-no">1</div><div class="stop-min">1&frac12; min</div></div>
+  <div>
+    <h2>A preflight check for the mistakes you already wrote down</h2>
+    <p class="pitch">Most development advice is written down and then forgotten at the exact
+    moment it matters. tripwire is the small, boring fix: <strong>two commands you run before
+    the risky thing, not after</strong>. <code>tripwire command explain -- &lt;command&gt;</code>
+    reads proposed command <em>text</em> and classifies it. <code>tripwire check</code> looks at
+    the repository you are sitting in &mdash; wrong repo layer, a worktree on no branch, a stale
+    branch, signs of another session already working here.</p>
+    <p class="pitch">It carries <strong>ten rules</strong>, and a rule was only admitted if a
+    written policy or a recorded incident already existed for it &mdash; the bar is deliberately
+    high, because a checker that cries wolf gets ignored. It is Python with
+    <strong>zero runtime dependencies</strong> (standard library only), it never runs the command
+    you hand it (its repository check does shell out to read-only git), never sits between you
+    and your shell, and never fixes anything for you. It also
+    refuses the one thing every tool like this is tempted to claim: an unflagged command is
+    reported as <em>nothing matched</em>, never as <em>safe</em>.</p>
+    <figure class="shot">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAwIDMzMCIgZm9udC1mYW1pbHk9InVpLW1vbm9zcGFjZSwnQ2FzY2FkaWEgQ29kZScsJ1NGIE1vbm8nLENvbnNvbGFzLCdSb2JvdG8gTW9ubycsbW9ub3NwYWNlIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IlNldmVuIGxvY2FsLWZpcnN0IHV0aWxpdGllcyBhcm91bmQgb25lIGRldiBzZXNzaW9uLiBPcGVuaW5nIHRoZSBzZXNzaW9uOiBmaW5kLWFnYWluIHJlY292ZXJzIHRoZSBjb250ZXh0LCBoZWFkcy11cCBjbGFpbXMgdGhlIHdvcmssIHRyaXB3aXJlIHByZWZsaWdodHMgdGhlIGNvbW1hbmQuIENsb3NpbmcgdGhlIHNlc3Npb246IGNoYW5nZWQtY2hlY2sgdmFsaWRhdGVzIHRoZSBjaGFuZ2UsIHNhbWUtcGFnZSByZWNvbmNpbGVzIHRoZSBzdGF0dXMsIG1lc2gtbGVucyBtZWFzdXJlcyB0aGUgcm91dGluZy4gQWNyb3NzIHNlc3Npb25zOiBwYXBlci10cmFpbCByZWNvcmRzIHRoZSBkZWNpc2lvbi4iPgogIDxkZWZzPgogICAgPG1hcmtlciBpZD0iYXItcy1kYXJrIiBtYXJrZXJXaWR0aD0iMTAiIG1hcmtlckhlaWdodD0iMTAiIHJlZlg9IjcuNSIgcmVmWT0iNSIgb3JpZW50PSJhdXRvIj48cGF0aCBkPSJNMCwwIEwxMCw1IEwwLDEwIFoiIGZpbGw9IiM2ZTliZmYiLz48L21hcmtlcj4KICAgIDxmaWx0ZXIgaWQ9InNoLWRhcmsiIHg9Ii0yMCUiIHk9Ii00NSUiIHdpZHRoPSIxNDAlIiBoZWlnaHQ9IjE5MCUiPjxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSIyIiBzdGREZXZpYXRpb249IjQiIGZsb29kLWNvbG9yPSJyZ2JhKDAsMCwwLC41KSIvPjwvZmlsdGVyPgogIDwvZGVmcz4KICA8c3R5bGU+CiAgICAuYmd7ZmlsbDojMTYxYzI2O3N0cm9rZTojMjkzMTNmO3N0cm9rZS13aWR0aDoxLjV9CiAgICAuc3BpbmV7ZmlsbDpub25lO3N0cm9rZTojNmU5YmZmO3N0cm9rZS13aWR0aDoyLjR9CiAgICAubm9kZSByZWN0e2ZpbGw6IzE2MWMyNjtzdHJva2U6IzM4NDE1MztzdHJva2Utd2lkdGg6MS40O2ZpbHRlcjp1cmwoI3NoLWRhcmspfQogICAgLmh1YiByZWN0e3N0cm9rZTojNmU5YmZmO3N0cm9rZS13aWR0aDoyfQogICAgLnBue2ZpbGw6IzZlOWJmZjtmb250LXNpemU6MTNweDtmb250LXdlaWdodDo2MDB9CiAgICAucHN7ZmlsbDojN2M4NTk4O2ZvbnQtc2l6ZToxMC41cHh9CiAgICAubGJse2ZpbGw6IzdjODU5ODtmb250LXNpemU6MTFweDtsZXR0ZXItc3BhY2luZzouMTJlbTtmb250LXdlaWdodDo2MDB9CiAgPC9zdHlsZT4KICA8cmVjdCBjbGFzcz0iYmciIHg9IjYiIHk9IjYiIHdpZHRoPSI5ODgiIGhlaWdodD0iMzE4IiByeD0iMTYiLz4KICA8dGV4dCBjbGFzcz0ibGJsIiB4PSIyNCIgeT0iMzIiPk9QRU4gVEhFIFNFU1NJT048L3RleHQ+CiAgPHRleHQgY2xhc3M9ImxibCIgeD0iNzU2IiB5PSIzMiI+Q0xPU0UgVEhFIFNFU1NJT048L3RleHQ+CiAgPHRleHQgY2xhc3M9ImxibCIgeD0iNTAwIiB5PSIzMDIiIHRleHQtYW5jaG9yPSJtaWRkbGUiPkFDUk9TUyBTRVNTSU9OUzwvdGV4dD4KICA8cGF0aCBjbGFzcz0ic3BpbmUiIG1hcmtlci1lbmQ9InVybCgjYXItcy1kYXJrKSIgZD0iTTI0NCw3MSBMMzkwLDEyMSIvPgogIDxwYXRoIGNsYXNzPSJzcGluZSIgbWFya2VyLWVuZD0idXJsKCNhci1zLWRhcmspIiBkPSJNMjQ0LDE0MSBMMzkwLDE0MSIvPgogIDxwYXRoIGNsYXNzPSJzcGluZSIgbWFya2VyLWVuZD0idXJsKCNhci1zLWRhcmspIiBkPSJNMjQ0LDIxMSBMMzkwLDE2MSIvPgogIDxwYXRoIGNsYXNzPSJzcGluZSIgbWFya2VyLWVuZD0idXJsKCNhci1zLWRhcmspIiBkPSJNNjEwLDEyMSBMNzU2LDcxIi8+CiAgPHBhdGggY2xhc3M9InNwaW5lIiBtYXJrZXItZW5kPSJ1cmwoI2FyLXMtZGFyaykiIGQ9Ik02MTAsMTQxIEw3NTYsMTQxIi8+CiAgPHBhdGggY2xhc3M9InNwaW5lIiBtYXJrZXItZW5kPSJ1cmwoI2FyLXMtZGFyaykiIGQ9Ik02MTAsMTYxIEw3NTYsMjExIi8+CiAgPHBhdGggY2xhc3M9InNwaW5lIiBtYXJrZXItZW5kPSJ1cmwoI2FyLXMtZGFyaykiIGQ9Ik01MDAsMTczIEw1MDAsMjM2Ii8+CiAgPGcgY2xhc3M9Im5vZGUiPjxyZWN0IHg9IjI0IiB5PSI0OCIgd2lkdGg9IjIyMCIgaGVpZ2h0PSI0NiIgcng9IjEwIi8+PHRleHQgY2xhc3M9InBuIiB4PSIzOCIgeT0iNjkiPmZpbmQtYWdhaW48L3RleHQ+PHRleHQgY2xhc3M9InBzIiB4PSIzOCIgeT0iODYiPnJlY292ZXIgdGhlIGNvbnRleHQ8L3RleHQ+PC9nPgogIDxnIGNsYXNzPSJub2RlIj48cmVjdCB4PSIyNCIgeT0iMTE4IiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjQ2IiByeD0iMTAiLz48dGV4dCBjbGFzcz0icG4iIHg9IjM4IiB5PSIxMzkiPmhlYWRzLXVwPC90ZXh0Pjx0ZXh0IGNsYXNzPSJwcyIgeD0iMzgiIHk9IjE1NiI+Y2xhaW0gdGhlIHdvcms8L3RleHQ+PC9nPgogIDxnIGNsYXNzPSJub2RlIj48cmVjdCB4PSIyNCIgeT0iMTg4IiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjQ2IiByeD0iMTAiLz48dGV4dCBjbGFzcz0icG4iIHg9IjM4IiB5PSIyMDkiPnRyaXB3aXJlPC90ZXh0Pjx0ZXh0IGNsYXNzPSJwcyIgeD0iMzgiIHk9IjIyNiI+cHJlZmxpZ2h0IHRoZSBjb21tYW5kPC90ZXh0PjwvZz4KICA8ZyBjbGFzcz0ibm9kZSBodWIiPjxyZWN0IHg9IjM5MCIgeT0iMTA5IiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjY0IiByeD0iMTIiLz48dGV4dCBjbGFzcz0icG4iIHg9IjUwMCIgeT0iMTMyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5kZXYgc2Vzc2lvbjwvdGV4dD48dGV4dCBjbGFzcz0icHMiIHg9IjUwMCIgeT0iMTUxIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5vbmUgcmVwbywgb25lIHdpbmRvdzwvdGV4dD48L2c+CiAgPGcgY2xhc3M9Im5vZGUiPjxyZWN0IHg9Ijc1NiIgeT0iNDgiIHdpZHRoPSIyMjAiIGhlaWdodD0iNDYiIHJ4PSIxMCIvPjx0ZXh0IGNsYXNzPSJwbiIgeD0iNzcwIiB5PSI2OSI+Y2hhbmdlZC1jaGVjazwvdGV4dD48dGV4dCBjbGFzcz0icHMiIHg9Ijc3MCIgeT0iODYiPnZhbGlkYXRlIHRoZSBjaGFuZ2U8L3RleHQ+PC9nPgogIDxnIGNsYXNzPSJub2RlIj48cmVjdCB4PSI3NTYiIHk9IjExOCIgd2lkdGg9IjIyMCIgaGVpZ2h0PSI0NiIgcng9IjEwIi8+PHRleHQgY2xhc3M9InBuIiB4PSI3NzAiIHk9IjEzOSI+c2FtZS1wYWdlPC90ZXh0Pjx0ZXh0IGNsYXNzPSJwcyIgeD0iNzcwIiB5PSIxNTYiPnJlY29uY2lsZSB0aGUgc3RhdHVzPC90ZXh0PjwvZz4KICA8ZyBjbGFzcz0ibm9kZSI+PHJlY3QgeD0iNzU2IiB5PSIxODgiIHdpZHRoPSIyMjAiIGhlaWdodD0iNDYiIHJ4PSIxMCIvPjx0ZXh0IGNsYXNzPSJwbiIgeD0iNzcwIiB5PSIyMDkiPm1lc2gtbGVuczwvdGV4dD48dGV4dCBjbGFzcz0icHMiIHg9Ijc3MCIgeT0iMjI2Ij5tZWFzdXJlIHRoZSByb3V0aW5nPC90ZXh0PjwvZz4KICA8ZyBjbGFzcz0ibm9kZSI+PHJlY3QgeD0iMzkwIiB5PSIyMzYiIHdpZHRoPSIyMjAiIGhlaWdodD0iNDYiIHJ4PSIxMCIvPjx0ZXh0IGNsYXNzPSJwbiIgeD0iNDA0IiB5PSIyNTciPnBhcGVyLXRyYWlsPC90ZXh0Pjx0ZXh0IGNsYXNzPSJwcyIgeD0iNDA0IiB5PSIyNzQiPnJlY29yZCB0aGUgZGVjaXNpb248L3RleHQ+PC9nPgo8L3N2Zz4K" alt="Seven local-first utilities around one dev session. Opening the session: find-again recovers the context, heads-up claims the work, tripwire preflights the command. Closing the session: changed-check validates the change, same-page reconciles the status, mesh-lens measures the routing. Across sessions: paper-trail records the decision.">
+      <figcaption><span class="hint">scroll the diagram sideways to read it &mdash; </span>where it sits &mdash; one of three utilities you reach for as a session opens, each feeding the same dev session. Diagram from the repository's own README.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- STOP 2 -->
+<section class="stop" id="s2">
+  <div class="stop-rail"><div class="stop-no">2</div><div class="stop-min">2 min</div></div>
+  <div>
+    <h2>The receipt &mdash; every warning names the rule it came from</h2>
+    <p class="pitch">Below is real output from the installed command line, captured on
+    2026-09-05 and pasted here unedited. Read the last line of each block: that
+    <code>provenance:</code> field is the point of the whole tool. A warning is not an opinion the
+    program formed; it is <strong>a pointer back to the workspace policy document the mistake
+    was written down in</strong>. Those documents live in the operator's dev workspace rather
+    than in this repository, so the pointer is a citation rather than a link &mdash; but it names
+    exactly what a reviewer would have to go read to argue with the rule.</p>
+
+    <div class="tryit"><span class="lbl">try it</span><code>uv run tripwire command explain [--json] -- &lt;command&gt;</code></div>
+
+    <p class="pitch"><strong>A warning.</strong> Staging everything at a folder that contains
+    other repositories quietly sweeps them in. tripwire says so, and offers the narrower form.</p>
+    <div class="term"><span class="cmd">&gt; tripwire command explain -- "git add -A"</span>
+target: git add -A
+<span class="w">[warn] TW-GIT-001@v1:</span> Changes are staged at a coding-root, where a broad `git add -A` or a bare `git stash` sweeps nested project repos. Prefer path-scoped `git add &lt;paths&gt;` / `git stash push -- &lt;paths&gt;` and verify the staged set before committing. Suggested: git add &lt;specific paths&gt;.
+    observed: broad staging: git add -A
+    <span class="p">provenance: .claude/rules/working-directory.md</span></div>
+    <p class="exline"><span class="chip warn">warn</span>exit code 0 &mdash; a warning is advisory and does not block</p>
+
+    <p class="pitch"><strong>A blocking finding.</strong> Some commands throw work away with no
+    way back. Those exit non-zero, so a script or an agent calling tripwire can stop on them.</p>
+    <div class="term"><span class="cmd">&gt; tripwire command explain -- "git push --force"</span>
+target: git push --force
+<span class="f">[fail] TW-GIT-003@v1:</span> Command performs a destructive git operation (`reset --hard`, `push --force`, `checkout -- &lt;path&gt;`) that discards work irrecoverably. Run a merge-base/ancestor check first and prefer a non-destructive alternative. Suggested: git push --force-with-lease after a merge-base/ancestor check.
+    observed: git push --force
+    <span class="p">provenance: .claude/rules/worktree-hygiene.md; docs/friction-catalog.md</span></div>
+    <p class="exline"><span class="chip block">fail</span>exit code 1 &mdash; the caller decides what to do with it; tripwire still runs nothing</p>
+
+    <p class="pitch"><strong>A finding that names the safer form.</strong> Killing processes by
+    name takes down whatever else happens to share that name. The suggested replacement kills one
+    process tree by ID.</p>
+    <div class="term"><span class="cmd">&gt; tripwire command explain -- "taskkill /IM node.exe /F"</span>
+target: taskkill /IM node.exe /F
+<span class="f">[fail] TW-CMD-001@v1:</span> Command kills processes by name (`taskkill /IM`, `Stop-Process -Name`), which can terminate unrelated processes. Kill by PID with a tree kill (`taskkill /T /F /PID &lt;pid&gt;`). Suggested: taskkill /T /F /PID &lt;pid&gt;.
+    observed: taskkill /IM &lt;name&gt;
+    <span class="p">provenance: docs/lessons-learned.md (Subprocess tree-kill on Windows)</span></div>
+    <p class="exline"><span class="chip block">fail</span>exit code 1</p>
+
+    <p class="pitch"><strong>And the honest quiet case.</strong> This is the sentence the tool was
+    designed around. It does not say the command is fine. It says nothing matched, and then says
+    out loud that this is not the same thing.</p>
+    <div class="term"><span class="cmd">&gt; tripwire command explain -- "git add src/tripwire/cli.py"</span>
+target: git add src/tripwire/cli.py
+no known risky pattern matched (tripwire flags only documented high-confidence patterns; this is not a safety guarantee)</div>
+    <p class="exline"><span class="chip ok">no match</span>exit code 0 &mdash; ten rules is the whole vocabulary; silence means those ten did not fire</p>
+  </div>
+</section>
+
+<!-- STOP 3 -->
+<section class="stop" id="s3">
+  <div class="stop-rail"><div class="stop-no">3</div><div class="stop-min">1&frac12; min</div></div>
+  <div>
+    <h2>Ten rules, one registry, IDs that keep their meaning</h2>
+    <p class="pitch">All ten rules live in a single file, and both the repository check and the
+    command explainer read their ID, severity, message and provenance from that one registry
+    &mdash; a rule may expose one surface or both &mdash; so the two cannot drift apart about
+    what is bad or why. Six are advisory, four are blocking. Every ID is versioned &mdash;
+    <code>TW-GIT-001@v1</code> &mdash; and a change in meaning bumps the version instead of
+    silently redefining an existing ID, so <strong>an ID quoted in a note a year ago still means
+    what it meant then</strong>. The written sources below are cited by path; like the provenance
+    lines above, they are documents in the operator's dev workspace, not files in this
+    repository.</p>
+    <table class="rules">
+      <thead><tr><th>Rule ID</th><th>Sev</th><th>What it catches</th><th>Written source</th></tr></thead>
+      <tbody>
+        <tr><td><code>TW-GIT-002@v1</code></td><td><span class="chip warn">warn</span></td><td>Wrong-repo-layer commit target: a root that contains nested project repos, where git resolves to the wrong layer</td><td><code>.claude/rules/working-directory.md</code></td></tr>
+        <tr><td><code>TW-GIT-001@v1</code></td><td><span class="chip warn">warn</span></td><td>Broad staging or a bare <code>git stash</code> at that same root</td><td><code>.claude/rules/working-directory.md</code></td></tr>
+        <tr><td><code>TW-WTR-001@v1</code></td><td><span class="chip block">fail</span></td><td>A linked worktree with a detached HEAD, where a commit advances no branch and is easily lost</td><td><code>CLAUDE.md</code> (session wrap &amp; commit discipline)</td></tr>
+        <tr><td><code>TW-WTR-002@v1</code></td><td><span class="chip warn">warn</span></td><td>Stale worktree &mdash; more than 3 commits behind its base, or a tip commit over a day old</td><td><code>.claude/rules/worktree-hygiene.md</code></td></tr>
+        <tr><td><code>TW-SES-001@v1</code></td><td><span class="chip warn">warn</span></td><td>State files from another in-flight session sitting at the root</td><td><code>CLAUDE.md</code> (parallel session safety)</td></tr>
+        <tr><td><code>TW-SES-002@v1</code></td><td><span class="chip warn">warn</span></td><td>Other worktrees active, or commits on other branches in the last hour</td><td><code>CLAUDE.md</code> (parallel session safety)</td></tr>
+        <tr><td><code>TW-GIT-003@v1</code></td><td><span class="chip block">fail</span></td><td><code>reset --hard</code>, <code>push --force</code>, <code>checkout -- &lt;path&gt;</code> &mdash; work discarded irrecoverably</td><td><code>.claude/rules/worktree-hygiene.md</code>; <code>docs/friction-catalog.md</code></td></tr>
+        <tr><td><code>TW-CMD-001@v1</code></td><td><span class="chip block">fail</span></td><td>Killing processes by name rather than by process ID</td><td><code>docs/lessons-learned.md</code></td></tr>
+        <tr><td><code>TW-SHL-001@v1</code></td><td><span class="chip warn">warn</span></td><td>bash syntax such as <code>&amp;&amp;</code> handed to PowerShell 5.1, where it is a parser error</td><td><code>.claude/rules/windows-shell.md</code></td></tr>
+        <tr><td><code>TW-SEC-001@v1</code></td><td><span class="chip block">fail</span></td><td>Printing the contents of a secrets file with <code>cat</code>, <code>type</code> or <code>grep</code></td><td><code>.claude/rules/security.md</code></td></tr>
+      </tbody>
+    </table>
+    <p class="pitch">The same report is available as JSON with a fixed key order, which is what
+    lets another program &mdash; or an AI coding agent &mdash; consume a finding rather than read
+    it. Captured 2026-09-05, unedited:</p>
+    <div class="term"><span class="cmd">&gt; tripwire command explain --json -- "git add -A"</span>
+{
+  "schema_version": 1,
+  "target": "git add -A",
+  "findings": [
+    {
+      "rule_id": "TW-GIT-001@v1",
+      "severity": "warn",
+      "message": "Changes are staged at a coding-root, where a broad `git add -A` or a bare `git stash` sweeps nested project repos. Prefer path-scoped `git add &lt;paths&gt;` / `git stash push -- &lt;paths&gt;` and verify the staged set before committing. Suggested: git add &lt;specific paths&gt;.",
+      "observed": "broad staging: git add -A",
+      "provenance": ".claude/rules/working-directory.md",
+      "evaluator": "command"
+    }
+  ]
+}</div>
+    <p class="exline"><span class="chip ok">stable shape</span>readers tolerate an older <code>schema_version</code> and refuse a newer one with an explicit error</p>
+  </div>
+</section>
+
+<!-- STOP 4 -->
+<section class="stop" id="s4">
+  <div class="stop-rail"><div class="stop-no">4</div><div class="stop-min">2 min</div></div>
+  <div>
+    <h2>It was graded before release &mdash; and it filed a complaint against itself</h2>
+    <p class="pitch">Before v1 shipped, a validation run drove the <strong>production command
+    line as a subprocess</strong> &mdash; not the internals, the same thing an operator types
+    &mdash; against six throwaway git repositories built with real git, each engineered to trip
+    one named rule (two of them unavoidably carry a second, real finding &mdash; a linked
+    worktree is by definition an active worktree); a frozen corpus of 22 risky commands; 25
+    clean trials; and a real, busy
+    workspace. The report it produced is committed in the repository, so the numbers below are
+    checkable rather than recalled.</p>
+    <table>
+      <thead><tr><th>What was tested</th><th>Trials</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Seeded bad repository states, one per throwaway repo</td><td>6</td><td><span class="chip ok">6 of 6</span> each detected at the expected rule ID</td></tr>
+        <tr><td>Risky commands, frozen corpus</td><td>22</td><td><span class="chip ok">22 of 22</span> at the expected rule ID <em>and</em> severity</td></tr>
+        <tr><td>Clean trials &mdash; one clean repo plus 24 safe commands</td><td>25</td><td><span class="chip ok">0 false positives</span> a 0.0% nuisance rate against a stated 5% ceiling</td></tr>
+        <tr><td>Live workspace check, best of three runs</td><td>3</td><td><span class="chip ok">0.37 s</span> against a 10-second budget</td></tr>
+      </tbody>
+    </table>
+    <p class="pitch">The harder question is what it does on a real machine that is genuinely
+    messy. It raised three findings there &mdash; and the report argues each one, with the tool's
+    own observed evidence, as a <strong>true positive rather than noise</strong>. Zero findings on
+    a clean fixture, three correct ones on a busy workspace, is the behaviour you want; the two
+    numbers only mean something together. (Paths and filenames are redacted in the committed
+    report, and reproduced redacted here.)</p>
+    <table>
+      <thead><tr><th>Rule</th><th>What the tool observed</th><th>Verdict in the report</th></tr></thead>
+      <tbody>
+        <tr><td><code>TW-GIT-002@v1</code></td><td><code>nested git repositories under target: &lt;sibling project repos redacted&gt; (40 total)</code></td><td>true positive &mdash; that root really is a layer above 40 project repos</td></tr>
+        <tr><td><code>TW-SES-001@v1</code></td><td><code>3 state file(s) at coding-root &lt;dev-root&gt;: .plan-expedite-state.* (filenames redacted)</code></td><td>true positive &mdash; three real files left by other sessions</td></tr>
+        <tr><td><code>TW-SES-002@v1</code></td><td><code>3 linked worktrees active</code></td><td>true positive &mdash; three worktrees genuinely were</td></tr>
+      </tbody>
+    </table>
+    <p class="pitch">The part worth reading is section 6. The same report files one limitation
+    <em>against the tool</em>: on a standalone repository with no coding-root marker above it, one
+    probe reports <code>unknown</code> and returns a non-zero exit &mdash; on every run, forever,
+    with nothing the user can do about it. That is the deliberate never-a-clean-pass contract
+    working as specified, and it is also a guaranteed annoyance for anyone outside the layout it
+    was built for. The report writes it down as a design tradeoff for a future version rather than
+    quietly dropping the case &mdash; <strong>and the four criteria it checks off are the same
+    four written into the plan before any of the work started</strong>.</p>
+    <div class="tryit"><span class="lbl">read it</span><code>docs/findings/v1-validation.md</code></div>
+  </div>
+</section>
+
+<!-- STOP 5 -->
+<section class="stop" id="s5">
+  <div class="stop-rail"><div class="stop-no">5</div><div class="stop-min">1 min</div></div>
+  <div>
+    <h2>One of seven tools that do not import each other</h2>
+    <p class="pitch">tripwire is one of seven local-first utilities for a development workspace,
+    built under a constraint that is easy to state and annoying to keep:
+    <strong>none of them share a runtime, and none of them import each other</strong>. Where two
+    meet, the seam is a file-format contract &mdash; a command shape, a JSON report shape, an
+    exit-code map &mdash; so any one of them can be replaced without touching the others.</p>
+    <p class="pitch">The diagram at the top of this page is that map; below is the same map as a
+    list. Every one of these runs entirely on your own machine: no rule is fetched from a
+    server, and no finding is reported anywhere.</p>
+    <table class="fam">
+      <thead><tr><th>Utility</th><th>When you reach for it</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>find-again</code></td><td>opening the session</td><td>local full-text search across dev-memory artifacts</td></tr>
+        <tr><td><code>heads-up</code></td><td>opening the session</td><td>advisory expiring claims across parallel sessions</td></tr>
+        <tr><td><code>tripwire</code></td><td>opening the session</td><td>preflight checks on repo state and commands &mdash; you are here</td></tr>
+        <tr><td><code>changed-check</code></td><td>closing the session</td><td>narrowest declared validation for a change set</td></tr>
+        <tr><td><code>same-page</code></td><td>closing the session</td><td>deterministic contradiction detection across status artifacts</td></tr>
+        <tr><td><code>mesh-lens</code></td><td>closing the session</td><td>cohort analysis of skill and model telemetry</td></tr>
+        <tr><td><code>paper-trail</code></td><td>across sessions</td><td>immutable decision records with explicit supersession</td></tr>
+      </tbody>
+    </table>
+    <div class="tryit"><span class="lbl">set up</span><code>uv sync --extra dev</code></div>
+    <div class="tryit"><span class="lbl">check a repo</span><code>uv run tripwire check [--root &lt;path&gt;] [--json]</code></div>
+    <div class="tryit"><span class="lbl">run the tests</span><code>uv run pytest -q</code></div>
+    <p class="links">
+      <a href="https://github.com/aberson/tripwire">tripwire</a>
+      <a href="https://github.com/aberson/find-again">find-again</a>
+      <a href="https://github.com/aberson/heads-up">heads-up</a>
+      <a href="https://github.com/aberson/changed-check">changed-check</a>
+      <a href="https://github.com/aberson/same-page">same-page</a>
+      <a href="https://github.com/aberson/mesh-lens">mesh-lens</a>
+      <a href="https://github.com/aberson/paper-trail">paper-trail</a>
+    </p>
+  </div>
+</section>
+
+<div class="setlists">
+  <h2>What it deliberately does not do</h2>
+  <p class="sub">the Out half of the scope list, from the repository's README</p>
+  <table>
+    <thead><tr><th>Not this</th><th>What that means in practice</th></tr></thead>
+    <tbody>
+      <tr><td>Command execution</td><td>tripwire reads command <em>text</em>. It never runs the thing you asked it about.</td></tr>
+      <tr><td>Shell interception</td><td>It does not sit between you and your terminal. You invoke it, once, when you want it.</td></tr>
+      <tr><td>Automatic fixes</td><td>It prints a suggested safer form. Typing that form is your decision, not its action.</td></tr>
+      <tr><td>Remote policy</td><td>Rules are local files in the repository. Nothing is fetched, and nothing is reported anywhere.</td></tr>
+      <tr><td>Any assurance a command is safe</td><td>The strongest thing it will ever say is that none of its ten rules matched.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  Every claim on this page comes from the tripwire repository: the terminal blocks are verbatim
+  captures from the installed command line, the rule table is read from
+  <code>src/tripwire/rules.py</code>, and the grading numbers come from the committed report at
+  <code>docs/findings/v1-validation.md</code>. The page embeds its one diagram directly; the
+  only thing it fetches is the Fraunces display face from Google Fonts, and offline it falls
+  back to a system serif. Repository:
+  <a href="https://github.com/aberson/tripwire">github.com/aberson/tripwire</a> &mdash;
+  assets captured 2026-09-05
+</footer>
+
+</div>
