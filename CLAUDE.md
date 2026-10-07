@@ -28,7 +28,7 @@ Shell: PowerShell (primary) on Windows; commands are shell-agnostic via uv.
 
 - `src/tripwire/__init__.py` — public exports
 - `src/tripwire/models.py` — `Finding` / `Report` shapes, `ExitCode`, `exit_code_for` (Step 1)
-- `src/tripwire/cli.py` — argparse: `check` + `command explain` (Step 1 stubs)
+- `src/tripwire/cli.py` — argparse: `check` workspace probes + `command explain` classification
 - `src/tripwire/rules.py` — canonical rule registry with provenance (Step 2)
 - `src/tripwire/workspace.py` — read-only git / worktree / session probes (Step 2)
 - `src/tripwire/command.py` — conservative command tokenizer + classifier (Step 3)
@@ -47,13 +47,13 @@ Shell: PowerShell (primary) on Windows; commands are shell-agnostic via uv.
 
 ## Status
 
-Step 1 (scaffold + report contract) complete: `models.py`, CLI arg surface (thin stubs), baseline
-tests, quality gates. Steps 2-5 (rules, workspace probes, command classifier, Windows hardening,
-real-workspace validation) pending — see [`plans/plan.md`](plans/plan.md) §7.
+Steps 1-5 are marked DONE in [`plans/plan.md`](plans/plan.md) §7. The CLI runs workspace
+probes and command classification; historical v1 validation is recorded in
+[`docs/findings/v1-validation.md`](docs/findings/v1-validation.md).
 
 ## Gotchas
 
-- CLI handlers in `cli.py` are Step-1 stubs: they emit a well-formed empty `Report` and the mapped
-  exit code. Do not treat a `check` exit 0 as a real clean verdict until Step 2 lands the probes.
+- CLI handlers in `cli.py` run the production evaluators. A `check` exit 0 means no blocking
+  findings, not absence of advisory findings; retain explicit `unknown`/incomplete results.
 - Everything beyond the pinned §5 finding/report fields is builder-decided; do not add fields to the
   pinned shapes without a plan change.
