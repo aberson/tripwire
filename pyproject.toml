@@ -23,6 +23,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/tripwire"]
 
+# Package data: the host hooks live at the repository root (hooks/<host>/) and
+# ship inside the package so `tripwire hook path --host <host>` can locate them.
+[tool.hatch.build.targets.wheel.force-include]
+"hooks/claude/tripwire-pretool.ps1" = "tripwire/hooks/claude/tripwire-pretool.ps1"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

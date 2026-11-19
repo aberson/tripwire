@@ -1,9 +1,12 @@
 """argparse entry point for tripwire.
 
-Exposes two subcommands whose argument surface is final:
+Exposes three subcommands and a version flag:
 
 * ``tripwire check [--root <path>] [--json]`` -- workspace preflight
 * ``tripwire command explain [--json] -- <command>`` -- command-text risk
+* ``tripwire hook path --host claude`` -- prints the absolute path of the
+  packaged host hook (for an installer to copy and register)
+* ``tripwire --version`` -- the install health check
 
 ``check`` is wired to the read-only workspace probes as of build step 2: it
 resolves the target root per ``plans/plan.md`` section 6 (enclosing git root of
@@ -25,7 +28,9 @@ import sys
 import unicodedata
 from collections.abc import Sequence
 
+from tripwire import __version__
 from tripwire.command import classify
+from tripwire.hook_assets import HOOK_FILES, HookNotFoundError, hook_path
 from tripwire.models import ExitCode, Report, exit_code_for
 from tripwire.workspace import GitTimeout, resolve_target, run_workspace_probes
 
@@ -46,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Local-first preflight checks that turn known workspace failure "
             "modes into evidence-bearing findings."
         ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"tripwire {__version__}",
+        help="Print the tripwire version and exit.",
     )
     subcommands = parser.add_subparsers(dest="command", metavar="<command>", required=True)
 
@@ -98,6 +109,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="The proposed command, given after a '--' separator.",
     )
     explain_parser.set_defaults(handler=_handle_command_explain)
+
+    hook_parser = subcommands.add_parser(
+        "hook",
+        help="Locate the host hook files packaged with tripwire.",
+        description="Locate the host hook files packaged with tripwire.",
+    )
+    hook_actions = hook_parser.add_subparsers(dest="action", metavar="<action>", required=True)
+    path_parser = hook_actions.add_parser(
+        "path",
+        help="Print the absolute path of a packaged hook file.",
+        description=(
+            "Print the absolute installed path of the hook file for --host, one line, "
+            "so an installer can copy and register it."
+        ),
+    )
+    path_parser.add_argument(
+        "--host",
+        required=True,
+        choices=sorted(HOOK_FILES),
+        help="Agent host whose hook to locate.",
+    )
+    path_parser.set_defaults(handler=_handle_hook_path)
 
     return parser
 
@@ -153,6 +186,36 @@ def _handle_command_explain(args: argparse.Namespace) -> int:
         ),
     )
     return int(exit_code_for(report))
+
+
+def _handle_hook_path(args: argparse.Namespace) -> int:
+    """``hook path`` handler: print the packaged hook's absolute path.
+
+    A missing hook file means a broken install: it is reported on stderr and
+    returns exit 2 (incomplete), never an empty or guessed path.
+    """
+    try:
+        path = hook_path(str(args.host))
+    except HookNotFoundError as exc:
+        sys.stderr.write(f"tripwire: {exc} (exit 2)\n")
+        return int(ExitCode.INVALID)
+    # An installer reads this line through a pipe, where Windows defaults stdout
+    # to the ANSI code page; write UTF-8 bytes so a non-ANSI profile path cannot
+    # raise UnicodeEncodeError.
+    _write_utf8_line(str(path))
+    return int(ExitCode.OK)
+
+
+def _write_utf8_line(text: str) -> None:
+    """Write ``text`` plus a newline to stdout as UTF-8, whatever its encoding."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        # Text-only stream (e.g. pytest capsys): it accepts any str.
+        sys.stdout.write(text + "\n")
+        return
+    sys.stdout.flush()
+    buffer.write((text + "\n").encode("utf-8"))
+    buffer.flush()
 
 
 def _emit(report: Report, *, as_json: bool, empty_note: str | None = None) -> None:

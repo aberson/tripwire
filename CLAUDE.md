@@ -22,16 +22,22 @@ Shell: PowerShell (primary) on Windows; commands are shell-agnostic via uv.
 - `uv run mypy --strict src` — types
 - `uv run tripwire check [--root <path>] [--json]` — workspace preflight
 - `uv run tripwire command explain [--json] -- <command>` — command-text risk explanation
+- `uv run tripwire hook path --host claude` — print the packaged Claude Code hook's absolute path
+- `uv run tripwire --version` — install health check
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/hooks/tripwire-pretool.tests.ps1` — hook behavioural suite (also run by `uv run pytest`)
 - `powershell -ExecutionPolicy Bypass -File docs/tour/open-tour.ps1` — open the guided tour page
 
 ## Layout
 
 - `src/tripwire/__init__.py` — public exports
 - `src/tripwire/models.py` — `Finding` / `Report` shapes, `ExitCode`, `exit_code_for` (Step 1)
-- `src/tripwire/cli.py` — argparse: `check` workspace probes + `command explain` classification
+- `src/tripwire/cli.py` — argparse: `check` workspace probes + `command explain` classification + `hook path` + `--version`
 - `src/tripwire/rules.py` — canonical rule registry with provenance (Step 2)
 - `src/tripwire/workspace.py` — read-only git / worktree / session probes (Step 2)
 - `src/tripwire/command.py` — conservative command tokenizer + classifier (Step 3)
+- `src/tripwire/hook_assets.py` — locates the packaged host hooks (`tripwire hook path --host claude`) (V4-10 Step 6)
+- `hooks/claude/tripwire-pretool.ps1` — advisory Claude Code PreToolUse hook, force-included into the wheel; ASCII-only; never resolves tripwire from the open project (V4-10 Step 6)
+- `tests/hooks/` — PowerShell behavioural suite for the hook (run by `tests/test_hook_powershell.py`) + garbage anchor (V4-10 Step 6)
 - `tests/` — baseline model + CLI-surface tests
 - `tests/fixtures/` — frozen good / bad / ambiguous cases (Steps 2-4)
 

@@ -49,6 +49,67 @@ uv run tripwire command explain -- <command>
 Exit codes: `0` no blocking findings, `1` blocking findings, `2` invalid input or incomplete
 evaluation. JSON output carries the same distinction.
 
+`tripwire --version` prints `tripwire <version>` and exits 0 (an install health check).
+
+## Claude Code hook
+
+tripwire ships an advisory PreToolUse hook for Claude Code (Windows PowerShell 5.1) inside the
+package. It runs `tripwire command explain --json` on each Bash or PowerShell command that passes
+a cheap in-process pre-screen.
+
+```powershell
+uv tool install --from <checkout or git URL> tripwire
+tripwire hook path --host claude   # prints the installed hook's absolute path, one line
+```
+
+Copy that file wherever you keep hooks and register it under `hooks.PreToolUse` in a Claude Code
+`settings.json`, with matcher `Bash|PowerShell`, `timeout` 5, `onFailure` `continue` and this
+exact command line:
+
+```text
+powershell.exe -NoProfile -NonInteractive -File "<absolute hook path>"
+```
+
+What the hook does, and never does:
+
+- **Observer only.** It exits 0 on every path and never emits `permissionDecision`, so it cannot
+  block or approve a tool call.
+- **At most one note.** It prints one `additionalContext` line for a `fail` finding. The only
+  `warn` it notes is `TW-GIT-001` (broad staging) when the target git toplevel is a coding root
+  (it carries `.claude/observatory/registry.toml`); a `fail` always takes precedence. Every other
+  `warn` and every `unknown` stays silent.
+- **Bounded.** One child call with a 3-second cap; on timeout the whole process tree is killed.
+  stdout is capped at 256 KiB; stderr is discarded.
+- **Shadow log.** Each pre-screen hit appends rows `{ts, tool, rule_id, severity, observed}` to
+  `%LOCALAPPDATA%\tripwire\hook-shadow.jsonl`: one per finding, a `none` row when tripwire found
+  nothing, or an `unavailable` row when the call failed or timed out. The command text is never
+  logged; `observed` is redacted of every command fragment.
+- **ASCII only.** Windows PowerShell 5.1 reads a no-BOM `.ps1` as cp1252.
+
+The hook finds tripwire in this order, first match wins:
+
+1. `tripwire.exe` on `PATH`;
+2. `tripwire.exe` in the default user uv tool bin directory (`UV_TOOL_BIN_DIR`, else
+   `XDG_BIN_HOME`, else `XDG_DATA_HOME\..\bin`, else `<user profile>\.local\bin`);
+3. when `DEV_UTILITIES_ROOT` is set and non-empty and
+   `$DEV_UTILITIES_ROOT\tripwire\pyproject.toml` exists,
+   `uv run --project "$DEV_UTILITIES_ROOT\tripwire" tripwire ...`;
+4. otherwise it does nothing (no note, no log row, no child process).
+
+Only an `.exe` is accepted in steps 1 and 2: a `.cmd` or `.bat` shim would pass the command text
+through `cmd.exe` parsing. The open project (`CLAUDE_PROJECT_DIR`, the payload `cwd`) is never a
+source: a repository you open could ship its own `tripwire/pyproject.toml`, and running it would
+execute that repository's code under your account.
+
+The behavioural suite runs the hook through that registered command line, from an installed copy:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/hooks/tripwire-pretool.tests.ps1
+```
+
+`uv run pytest -q` runs it too (`tests/test_hook_powershell.py`), together with a red-on-garbage
+run against `tests/hooks/fixtures/garbage-hook.ps1` that must fail.
+
 ## Design decisions
 
 - **One rule owner.** Workspace checks and command explanations share IDs, severity, rationale,
@@ -68,8 +129,11 @@ src/tripwire/
   rules.py       canonical rule registry with provenance
   workspace.py   read-only git / worktree / session probes
   command.py     conservative command tokenizer + classifier
-  cli.py         check + command explain entry points
+  cli.py         check + command explain + hook path entry points
+  hook_assets.py locate the packaged host hooks
+hooks/claude/    the Claude Code PreToolUse hook (shipped inside the package)
 tests/fixtures/  frozen good / bad / ambiguous cases
+tests/hooks/     PowerShell behavioural suite for the hook + its garbage anchor
 ```
 
 See [plans/plan.md](plans/plan.md) for the full build plan and the v1 rule inventory.
