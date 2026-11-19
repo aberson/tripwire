@@ -1,6 +1,6 @@
 [project]
 name = "tripwire"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first preflight checks that turn known workspace failure modes into evidence-bearing findings."
 readme = "README.md"
 requires-python = ">=3.12"
