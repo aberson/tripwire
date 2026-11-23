@@ -19,7 +19,7 @@ from tripwire.models import (
     exit_code_for,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "EVALUATORS",
