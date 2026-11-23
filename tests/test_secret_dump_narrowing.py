@@ -116,7 +116,7 @@ def test_substituted_file_operand_is_not_reported(command: str) -> None:
 
 
 def test_unterminated_heredoc_leaves_text_unchanged() -> None:
-    text = "python -c 'print(1 << shift)'\ncat .env"
+    text = "python -c 'print(1 << shift)'; cat .env"
     assert strip_heredoc_bodies(text) == text
     assert _sec(text) == ["fail"]
 

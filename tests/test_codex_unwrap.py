@@ -160,8 +160,9 @@ def test_unwrap_refuses_ambiguous_shapes(command: str) -> None:
 
 
 def test_fallback_matches_pre_unwrap_classification() -> None:
-    # Several args after -Command: classified exactly as the plain text, as before.
-    command = f'"{PS}" -Command git push --force'
+    # Several args after -Command: classified exactly as the plain text, as before
+    # (here the unquoted ';' makes "git push --force" its own segment).
+    command = f'"{PS}" -Command git status; git push --force'
     assert unwrap_powershell(command) is None
     assert ("TW-GIT-003@v1", "fail") in _ids(command)
 
