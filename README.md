@@ -49,6 +49,35 @@ uv run tripwire command explain -- <command>
 Exit codes: `0` no blocking findings, `1` blocking findings, `2` invalid input or incomplete
 evaluation. JSON output carries the same distinction.
 
+### Command classification
+
+`command explain --json` keeps `schema_version` 1 and adds fields after `findings`:
+`shell` (`powershell` or `unspecified`) and `unwrapped` (true or false), plus `inner_command`
+when a wrapper was unwrapped. Readers of the original three fields are unaffected.
+
+A PowerShell `-Command` wrapper is unwrapped and its inner command is classified as PowerShell.
+Accepted shape, nothing else: the program is a quoted or unquoted path to `powershell.exe` or
+`pwsh.exe` (or the bare names); optionally `-NoProfile`, `-NonInteractive`, `-NoLogo` (or `-nop`,
+`-noni`, `-nol`) and `-ExecutionPolicy <value>`; then `-Command` or `-c` and exactly one argument.
+The line is split by the Windows C-runtime rules (`\"` is a literal quote inside a quoted
+argument). An unterminated quote, a `""` pair inside quotes, several arguments after `-Command`,
+any other parameter (`-File`, `-EncodedCommand`) or an empty inner command is not unwrapped: the
+text is classified as given, as before.
+
+Heredoc and PowerShell here-string bodies are data (a commit message, a file being written) and
+are removed before classification.
+
+`TW-SEC-001` (secret-file dump) judges only the files a command prints. Since 0.1.2:
+
+- a grep, `Select-String` or awk pattern is not a file (`grep -rn ".env" src` is quiet;
+  `grep TOKEN .env` still fails);
+- a redirect target is written, not printed (`cat > .env` is quiet; `cat < .env` fails);
+- source and documentation files named after secrets (`secret-read-guard.py`,
+  `secrets-handling.md`) are not secret stores;
+- a substituted file operand (`cat $f`, `Get-Content $path`) is no longer reported as `unknown`.
+  A 2026-11-23 replay of 8,247 real shell commands showed that branch produced 1,115 of the
+  rule's 1,156 hook rows, and the hook never surfaces an `unknown`.
+
 `tripwire --version` prints `tripwire <version>` and exits 0 (an install health check).
 
 ## Claude Code hook
@@ -69,6 +98,19 @@ exact command line:
 ```text
 powershell.exe -NoProfile -NonInteractive -File "<absolute hook path>"
 ```
+
+### Codex CLI
+
+The same script is the Codex CLI hook: `tripwire hook path --host codex` prints the same packaged
+file. Register it in `~/.codex/hooks.json` under `PreToolUse` with matcher `^Bash$` and the same
+command line. Codex sends the same payload (`tool_name`, `tool_input.command`, `cwd`) and reads
+the same advisory output: its PreToolUse output schema accepts
+`hookSpecificOutput.additionalContext` ("model-visible context without blocking"). Codex runs
+every shell call as `tool_name` `Bash` with a command line such as
+`"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -Command "<real command>"`.
+tripwire unwraps that line (see Command classification below), so the hook keeps `TW-SHL-001`
+for it even though the tool name is `Bash`. A `tool_name` other than `Bash` or `PowerShell`
+(Codex also hands hooks an `apply_patch` "command", which is patch text) is never evaluated.
 
 What the hook does, and never does:
 

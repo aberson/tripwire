@@ -28,7 +28,14 @@ risky form cannot be ruled out, the finding is reported ``unknown`` (exit 2) and
 NEVER cleared as safe. ``git push`` is the one narrow exception: its only
 destructive form is the ``--force``/``-f`` FLAG, so only a substitution in that
 flag position is indeterminate; a bare refspec (``git push origin $BRANCH``) is
-not a risk-determining position and stays clean.
+not a risk-determining position and stays clean. Rule 10 has no ``unknown``
+branch since 0.1.2 (see :func:`_match_secret_dump` for the replay evidence).
+
+Wrappers and data (0.1.2): a PowerShell ``-Command`` wrapper line -- the shape
+the Codex CLI hands hooks for every shell call -- is unwrapped and its inner
+command classified as PowerShell (:func:`unwrap_powershell`; any shape it cannot
+read unambiguously is classified as given). Heredoc and here-string bodies are
+data and are removed before tokenizing (:func:`strip_heredoc_bodies`).
 
 Field contract (plan section 5): ``Finding.observed`` holds the observed value
 behind the verdict, never a prescription. Where a safer form is deterministic it
@@ -117,6 +124,104 @@ _SECRET_BASENAMES = frozenset({".env", ".netrc", ".npmrc", ".pgpass"})
 #: secret, so a basename ending in one of these is exempt from rule 10.
 _TEMPLATE_SUFFIXES = (".example", ".sample", ".template")
 
+#: Source / documentation suffixes. A file whose basename ends in one of these is
+#: code or prose ABOUT secrets (``secret_scanner.py``, ``secrets-handling.md``),
+#: not a secret store, so the substring signal (``secret`` / ``credential`` /
+#: ``password`` ...) does not mark it. The basename and private-key-suffix
+#: signals are unaffected.
+_SOURCE_SUFFIXES = (
+    ".md",
+    ".markdown",
+    ".rst",
+    ".html",
+    ".htm",
+    ".py",
+    ".pyi",
+    ".ps1",
+    ".psm1",
+    ".psd1",
+    ".sh",
+    ".bash",
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".rs",
+    ".go",
+    ".java",
+    ".kt",
+    ".cs",
+    ".rb",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".css",
+    ".svg",
+    ".mmd",
+    ".ipynb",
+)
+
+#: Search tools whose FIRST operand is a pattern/program, not a file (rule 10
+#: judges only the file operands; see :func:`_dump_file_operands`).
+_GREP_TOOLS = frozenset({"grep"})
+_SELECT_STRING_TOOLS = frozenset({"sls", "select-string"})
+_AWK_TOOLS = frozenset({"awk"})
+
+#: grep short options that take a value (the next token, or the bundle's rest).
+_GREP_SHORT_VALUE = frozenset("efmABCdD")
+#: grep long options that take a separate value when written without ``=``.
+_GREP_LONG_VALUE = frozenset(
+    {
+        "--regexp",
+        "--file",
+        "--max-count",
+        "--after-context",
+        "--before-context",
+        "--context",
+        "--include",
+        "--exclude",
+        "--exclude-dir",
+        "--exclude-from",
+        "--label",
+        "--binary-files",
+        "--devices",
+        "--directories",
+        "--group-separator",
+    }
+)
+#: Select-String parameters that take a value (case-folded); ``-Pattern`` and the
+#: path parameters are handled separately.
+_SLS_VALUE_PARAMS = frozenset(
+    {"-context", "-encoding", "-include", "-exclude", "-culture", "-inputobject"}
+)
+_SLS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-lp", "-pspath"})
+
+#: Output-redirection operators whose NEXT token is a write target, not an input.
+_REDIRECT_OUT = frozenset({">", ">>", "1>", "2>", "1>>", "2>>", "&>", "&>>", "*>", "*>>", ">|"})
+_REDIRECT_OUT_ATTACHED = re.compile(r"^(?:[0-9&*]?>>?|>\|)")
+
+#: A bash heredoc operator: ``<<WORD``, ``<<-WORD``, ``<<'WORD'``, ``<<"WORD"``,
+#: ``<<\WORD`` (not the ``<<<`` here-string). Group ``dash`` marks ``<<-`` (tab-
+#: stripped terminator); one of ``sq`` / ``dq`` / ``bare`` is the delimiter.
+_HEREDOC_RE = re.compile(
+    r"(?<!<)<<(?P<dash>-?)[ \t]*"
+    r"(?:'(?P<sq>[^'\n]+)'|\"(?P<dq>[^\"\n]+)\"|\\?(?P<bare>[A-Za-z_][\w-]*))"
+)
+#: A PowerShell here-string opener at end of line (``@'`` / ``@"``).
+_HERESTRING_OPEN_RE = re.compile(r"@(['\"])[ \t]*\r?$")
+
+
+#: Shell names a :class:`Classification` reports. ``unspecified`` means tripwire
+#: did not establish the shell: the text was classified as given, and the caller's
+#: host context decides which shell it runs in (the historical behaviour).
+#: ``powershell`` means the text was a recognised PowerShell ``-Command`` wrapper
+#: and the inner command was classified as PowerShell.
+SHELL_UNSPECIFIED = "unspecified"
+SHELL_POWERSHELL = "powershell"
+
 
 @dataclass(frozen=True)
 class Classification:
@@ -125,10 +230,17 @@ class Classification:
     ``findings`` are the (possibly empty) risk findings. ``invalid_reason`` is
     set only for empty/unparseable input; the CLI maps it to exit 2 at the
     boundary rather than inventing a finding for text it could not parse.
+    ``shell`` / ``unwrapped`` / ``inner_command`` say what was classified: when a
+    PowerShell ``-Command`` wrapper was recognised (:func:`unwrap_powershell`),
+    ``unwrapped`` is true, ``shell`` is ``powershell`` and ``inner_command`` holds
+    the extracted inner text the findings were judged on.
     """
 
     findings: tuple[Finding, ...] = ()
     invalid_reason: str | None = None
+    shell: str = SHELL_UNSPECIFIED
+    unwrapped: bool = False
+    inner_command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -535,7 +647,7 @@ def _looks_secret(token: str) -> bool:
     base = low.replace("\\", "/").rsplit("/", 1)[-1]
     if base.endswith(_TEMPLATE_SUFFIXES):
         return False
-    if any(sub in low for sub in _SECRET_SUBSTRINGS):
+    if not base.endswith(_SOURCE_SUFFIXES) and any(sub in low for sub in _SECRET_SUBSTRINGS):
         return True
     if base == ".env" or base.startswith(".env.") or low.endswith(".env"):
         return True
@@ -557,32 +669,198 @@ def _looks_secret_literal(token: str) -> bool:
     return _looks_secret(_SUBST_RE.sub("", token))
 
 
+def _strip_redirections(args: list[str]) -> list[str]:
+    """Drop output-redirection targets and heredoc markers from a dump tool's args.
+
+    ``cat > notes.md`` / ``type x 2> err.log`` WRITE the redirect target; it is not
+    an input, so it is never a dump target. ``cat < .env`` reads its input
+    redirect, which IS a dump target, so the input file is kept. A heredoc marker
+    (``<<'EOF'``) ends the scan: whatever the tokenizer sees after it on that
+    line is the heredoc's own wiring, not a file being printed.
+    """
+    kept: list[str] = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token.startswith("<<"):
+            break
+        if token in _REDIRECT_OUT:
+            i += 2
+            continue
+        if _REDIRECT_OUT_ATTACHED.match(token):
+            i += 1
+            continue
+        if token == "<":
+            if i + 1 < len(args):
+                kept.append(args[i + 1])
+            i += 2
+            continue
+        if token.startswith("<"):
+            kept.append(token[1:])
+            i += 1
+            continue
+        kept.append(token)
+        i += 1
+    return kept
+
+
+def _grep_file_operands(args: list[str]) -> list[str]:
+    """Return grep's FILE operands: the positionals minus the pattern.
+
+    The first positional is the pattern unless ``-e`` / ``-f`` / ``--regexp`` /
+    ``--file`` supplied it. Option values (``-A 3``, ``--include *.py``) are
+    skipped. GNU grep permutes, so options may follow the operands.
+    """
+    positionals: list[str] = []
+    explicit_pattern = False
+    end_of_options = False
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if end_of_options or not token.startswith("-") or token == "-":
+            positionals.append(token)
+            i += 1
+            continue
+        if token == "--":
+            end_of_options = True
+            i += 1
+            continue
+        if token.startswith("--"):
+            name = token.split("=", 1)[0]
+            if name in ("--regexp", "--file"):
+                explicit_pattern = True
+            i += 2 if ("=" not in token and name in _GREP_LONG_VALUE) else 1
+            continue
+        takes_next = False
+        for j, ch in enumerate(token[1:], start=1):
+            if ch in _GREP_SHORT_VALUE:
+                explicit_pattern = explicit_pattern or ch in "ef"
+                takes_next = j == len(token) - 1
+                break
+        i += 2 if takes_next else 1
+    return positionals if explicit_pattern else positionals[1:]
+
+
+def _select_string_file_operands(args: list[str]) -> list[str]:
+    """Return Select-String's path operands (``-Path`` / ``-LiteralPath`` / 2nd positional).
+
+    ``-Pattern`` (any abbreviation from ``-pat``) and the first positional are the
+    pattern. Parameter names are case-insensitive and may carry an attached
+    ``-Name:value``. Comma-separated path arrays are split.
+    """
+    paths: list[str] = []
+    pattern_seen = False
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token.startswith("-") and len(token) > 1:
+            name, sep, attached = token.partition(":")
+            name = name.lower()
+            value: str | None = attached if sep else None
+            consumed = 1 if sep else 2
+            if len(name) >= 4 and "-pattern".startswith(name):
+                pattern_seen = True
+                i += consumed
+                continue
+            if name in _SLS_PATH_PARAMS:
+                if value is None and i + 1 < len(args):
+                    value = args[i + 1]
+                if value is not None:
+                    paths.extend(v for v in value.split(",") if v)
+                i += consumed
+                continue
+            if name in _SLS_VALUE_PARAMS:
+                i += consumed
+                continue
+            i += 1  # a switch (-SimpleMatch, -Quiet, -Raw, ...)
+            continue
+        if not pattern_seen:
+            pattern_seen = True
+        else:
+            paths.extend(v for v in token.split(",") if v)
+        i += 1
+    return paths
+
+
+def _awk_file_operands(args: list[str]) -> list[str]:
+    """Return awk's FILE operands: the positionals minus the program text.
+
+    ``-F <sep>`` / ``-v <var=val>`` take a value; ``-f <progfile>`` supplies the
+    program, after which every positional is a file.
+    """
+    positionals: list[str] = []
+    program_from_file = False
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-F", "-v", "-f"):
+            program_from_file = program_from_file or token == "-f"
+            i += 2
+            continue
+        if token.startswith(("-F", "-v")) and len(token) > 2:
+            i += 1
+            continue
+        if token.startswith("-f") and len(token) > 2:
+            program_from_file = True
+            i += 1
+            continue
+        if token == "--":
+            positionals.extend(args[i + 1 :])
+            break
+        if token.startswith("-") and token != "-":
+            i += 1
+            continue
+        positionals.append(token)
+        i += 1
+    return positionals if program_from_file else positionals[1:]
+
+
+def _dump_file_operands(tool: str, args: list[str]) -> list[str]:
+    """Return the arguments of a dump tool that name a file it PRINTS (rule 10).
+
+    Redirect targets and heredoc wiring are dropped first
+    (:func:`_strip_redirections`). For the search tools the pattern / program
+    operand is excluded -- searching FOR the text ``.env`` or ``password`` prints
+    nothing from a secrets file -- so only their file operands are judged. Every
+    other dump tool prints every operand, so all of its remaining args are kept
+    (option tokens such as ``-n`` never look like a secret).
+    """
+    args = _strip_redirections(args)
+    if tool in _GREP_TOOLS:
+        return _grep_file_operands(args)
+    if tool in _SELECT_STRING_TOOLS:
+        return _select_string_file_operands(args)
+    if tool in _AWK_TOOLS:
+        return _awk_file_operands(args)
+    return args
+
+
 def _match_secret_dump(segment: list[str]) -> Finding | None:
     """Rule 10 (TW-SEC-001, fail): flag dumping a secrets-bearing file's contents.
 
     A content-printing tool (``cat``/``type``/``grep``/...) with a secrets-bearing
-    argument is the dump footgun; the safer form (metadata-only / effect-based
-    verification) is folded into the finding message. Mirroring rules 2/7/8: when
-    no argument is a confirmed secret but a dumped-target argument is a shell
-    substitution (``cat $VAR``, ``type %SECRET%``) so it cannot be ruled out as
-    naming a secret, the finding is ``unknown`` (exit 2) -- never cleared as safe.
+    FILE operand is the dump footgun; the safer form (metadata-only / effect-based
+    verification) is folded into the finding message. Only the operands the tool
+    prints are judged (:func:`_dump_file_operands`): a grep / Select-String / awk
+    pattern, a redirect target and a heredoc body are not files being printed.
+    Unlike rules 2/7/8 there is NO ``unknown`` branch since 0.1.2: a file operand
+    that is a shell substitution (``cat $f``, ``Get-Content $path``) is not
+    reported. A substitution's literal part still counts (``cat $DIR/id_rsa``
+    fails). Evidence for retiring the branch (2026-11-23 replay of the 8,247
+    pre-screened Claude shell commands in the shadow-log window from 2026-11-22
+    23:27 UTC): it produced 1,115 of the rule's 1,156 hook rows, the hook never
+    surfaces an ``unknown``, and the substitutions were loop variables and paths;
+    real dumps are blocked separately by the workspace secret-read-guard hook.
     """
     if not segment:
         return None
     tool = _normalize_tool(segment[0])
     if tool not in _DUMP_TOOLS:
         return None
-    args = segment[1:]
+    args = _dump_file_operands(tool, segment[1:])
     secret = next((a for a in args if _looks_secret_literal(a)), None)
     if secret is None:
-        subst = _first_subst(args)
-        if subst is None:
-            return None
-        return _finding(
-            rules.RULE_SECRET_FILE_DUMP,
-            f"{tool} target is a shell substitution ({subst}); may name a secrets-bearing file",
-            severity="unknown",
-        )
+        return None
     return _finding(
         rules.RULE_SECRET_FILE_DUMP,
         f"{tool} reads a secrets-bearing file ({secret})",
@@ -621,19 +899,218 @@ _SEGMENT_MATCHERS: tuple[Callable[[list[str]], Finding | None], ...] = (
 )
 
 
-def classify(command: str) -> Classification:
-    """Classify a proposed command string against the command-evaluator rules.
+# --- PowerShell -Command wrapper (Codex CLI shell calls) -------------------------
 
-    Returns a :class:`Classification`. Empty or unparseable input yields an
-    ``invalid_reason`` (no findings); otherwise the risk findings are returned in
-    a deterministic order (per-segment matchers in rule-number order, then the
-    whole-command shell-mismatch check). An empty ``findings`` tuple with no
-    ``invalid_reason`` means no documented risky pattern matched -- which the CLI
-    reports as "no known risky pattern" and never as an endorsement.
+#: Program basenames (case-folded) recognised as a PowerShell host.
+_POWERSHELL_PROGRAMS = frozenset({"powershell.exe", "powershell", "pwsh.exe", "pwsh"})
+
+#: Value-less PowerShell host switches accepted before ``-Command`` (with their
+#: documented abbreviations). Anything not listed here makes the shape unknown.
+_POWERSHELL_SWITCHES = frozenset(
+    {"-noprofile", "-nop", "-noninteractive", "-noni", "-nologo", "-nol"}
+)
+
+#: PowerShell host parameters that take exactly one value, accepted before ``-Command``.
+_POWERSHELL_VALUE_PARAMS = frozenset({"-executionpolicy", "-ep", "-ex", "-exec"})
+
+#: The command parameter spellings accepted: ``-Command`` and its alias ``-c``.
+_POWERSHELL_COMMAND_PARAMS = frozenset({"-command", "-c"})
+
+
+def _split_windows_command_line(line: str) -> list[str] | None:
+    """Split a Windows command line into argv, or ``None`` when it is ambiguous.
+
+    Implements the Microsoft C runtime / ``CommandLineToArgvW`` rules, which are
+    what ``powershell.exe`` itself uses to read its arguments and what a
+    Rust-``std::process::Command``-style quoter (the Codex CLI's spawner) emits:
+
+    * argv[0] (the program) is either a double-quoted span with no escape
+      processing, or a run of non-blank characters containing no quote;
+    * later arguments are separated by spaces/tabs outside quotes; ``"`` toggles
+      quoting; ``2n`` backslashes before a ``"`` yield ``n`` backslashes and the
+      quote toggles, ``2n+1`` yield ``n`` backslashes and a literal ``"``; other
+      backslashes are literal.
+
+    It refuses (``None``) everything whose meaning differs between C-runtime
+    versions or that no conforming quoter would emit: an unterminated quote, a
+    ``""`` pair inside a quoted span, a quoted program followed directly by a
+    non-blank character, and a line break outside quotes.
+    """
+    n = len(line)
+    i = 0
+    while i < n and line[i] in " \t":
+        i += 1
+    if i >= n:
+        return None
+    argv: list[str] = []
+    if line[i] == '"':
+        close = line.find('"', i + 1)
+        if close == -1:
+            return None
+        argv.append(line[i + 1 : close])
+        i = close + 1
+        if i < n and line[i] not in " \t":
+            return None
+    else:
+        start = i
+        while i < n and line[i] not in " \t":
+            if line[i] == '"' or line[i] in "\r\n":
+                return None
+            i += 1
+        argv.append(line[start:i])
+    while True:
+        while i < n and line[i] in " \t":
+            i += 1
+        if i >= n:
+            return argv
+        buf: list[str] = []
+        in_quotes = False
+        while i < n:
+            ch = line[i]
+            if ch == "\\":
+                run = i
+                while run < n and line[run] == "\\":
+                    run += 1
+                count = run - i
+                if run < n and line[run] == '"':
+                    buf.append("\\" * (count // 2))
+                    if count % 2:
+                        buf.append('"')
+                        i = run + 1
+                    else:
+                        i = run  # the quote toggles on the next pass
+                else:
+                    buf.append("\\" * count)
+                    i = run
+                continue
+            if ch == '"':
+                if in_quotes and i + 1 < n and line[i + 1] == '"':
+                    return None  # "" inside quotes: C-runtime-version dependent
+                in_quotes = not in_quotes
+                i += 1
+                continue
+            if not in_quotes and ch in " \t":
+                break
+            if not in_quotes and ch in "\r\n":
+                return None
+            buf.append(ch)
+            i += 1
+        if in_quotes:
+            return None  # unterminated quote
+        argv.append("".join(buf))
+
+
+def unwrap_powershell(command: str) -> str | None:
+    """Return the inner command of a PowerShell ``-Command`` wrapper, or ``None``.
+
+    The Codex CLI runs every shell call on Windows as
+    ``"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "<cmd>"``
+    and hands hooks that whole line as the command, so tripwire would otherwise
+    judge the wrapper instead of the real (PowerShell) command. Accepted shape,
+    and nothing else:
+
+    * the program: a quoted or unquoted path whose basename is ``powershell.exe``
+      or ``pwsh.exe`` (or the bare names, with or without ``.exe``), any case;
+    * optionally ``-NoProfile`` / ``-NonInteractive`` / ``-NoLogo`` (or their
+      abbreviations ``-nop`` / ``-noni`` / ``-nol``) and ``-ExecutionPolicy
+      <value>`` (``-ep`` / ``-ex`` / ``-exec``), in any order and case;
+    * then ``-Command`` or ``-c`` followed by EXACTLY ONE argument.
+
+    The line is split with :func:`_split_windows_command_line`. Anything else --
+    another parameter (``-File``, ``-EncodedCommand``), several arguments after
+    ``-Command`` (PowerShell would re-join them, losing their quoting), an
+    ambiguous quote, an empty inner command, or ``-`` (read from stdin) -- is not
+    unwrapped, and the caller falls back to classifying the text as given.
+    """
+    argv = _split_windows_command_line(command)
+    if argv is None or len(argv) < 3:
+        return None
+    program = argv[0].lower().replace("\\", "/").rsplit("/", 1)[-1]
+    if program not in _POWERSHELL_PROGRAMS:
+        return None
+    i = 1
+    while i < len(argv):
+        param = argv[i].lower()
+        if param in _POWERSHELL_SWITCHES:
+            i += 1
+            continue
+        if param in _POWERSHELL_VALUE_PARAMS:
+            i += 2
+            continue
+        if param in _POWERSHELL_COMMAND_PARAMS:
+            rest = argv[i + 1 :]
+            if len(rest) != 1:
+                return None
+            inner = rest[0]
+            if not inner.strip() or inner.strip() == "-":
+                return None
+            return inner
+        return None
+    return None
+
+
+def strip_heredoc_bodies(command: str) -> str:
+    """Remove bash heredoc bodies and PowerShell here-string bodies from ``command``.
+
+    A heredoc / here-string body is DATA fed to a command (a commit message, a
+    file being written), never command text, yet the tokenizer would otherwise
+    read its words as arguments -- and its stray ``;`` / ``|`` / quotes as
+    structure. Removed:
+
+    * bash ``<<WORD`` / ``<<-WORD`` / ``<<'WORD'`` / ``<<"WORD"`` / ``<<\\WORD``:
+      every following line up to and including the terminator line (exactly
+      ``WORD``; leading tabs allowed for ``<<-``), several heredocs on one line
+      consumed in order;
+    * PowerShell ``@'`` / ``@"`` at the end of a line: the lines up to (not
+      including) the closing ``'@`` / ``"@`` line.
+
+    Conservative: if ANY opener has no terminator the text is returned
+    unchanged, because an operator-looking ``<<`` (a C++ shift in an inline
+    script) must not swallow real commands.
+    """
+    lines = command.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        delimiters = [
+            (m.group("sq") or m.group("dq") or m.group("bare") or "", bool(m.group("dash")))
+            for m in _HEREDOC_RE.finditer(line)
+        ]
+        if delimiters:
+            for word, dash in delimiters:
+                j = i
+                while j < len(lines):
+                    candidate = lines[j].rstrip("\r")
+                    if (candidate.lstrip("\t") if dash else candidate) == word:
+                        break
+                    j += 1
+                else:
+                    return command  # unterminated heredoc: leave the text as given
+                i = j + 1
+            continue
+        opener = _HERESTRING_OPEN_RE.search(line)
+        if opener is not None:
+            closer = opener.group(1) + "@"
+            j = i
+            while j < len(lines) and not lines[j].startswith(closer):
+                j += 1
+            if j >= len(lines):
+                return command  # unterminated here-string
+            i = j  # keep the closing line; drop only the body
+    return "\n".join(out)
+
+
+def _classify_text(command: str) -> Classification:
+    """Classify ``command`` as given (no wrapper detection).
+
+    Heredoc / here-string bodies are removed first (:func:`strip_heredoc_bodies`).
     """
     if not command.strip():
         return Classification(invalid_reason="no command text to evaluate")
-    tokens = _tokenize_rich(command)
+    tokens = _tokenize_rich(strip_heredoc_bodies(command))
     if tokens is None:
         return Classification(invalid_reason="could not parse command text (unbalanced quote)")
     findings: list[Finding] = []
@@ -646,3 +1123,31 @@ def classify(command: str) -> Classification:
     if shell is not None:
         findings.append(shell)
     return Classification(findings=tuple(findings))
+
+
+def classify(command: str) -> Classification:
+    """Classify a proposed command string against the command-evaluator rules.
+
+    Returns a :class:`Classification`. Empty or unparseable input yields an
+    ``invalid_reason`` (no findings); otherwise the risk findings are returned in
+    a deterministic order (per-segment matchers in rule-number order, then the
+    whole-command shell-mismatch check). An empty ``findings`` tuple with no
+    ``invalid_reason`` means no documented risky pattern matched -- which the CLI
+    reports as "no known risky pattern" and never as an endorsement.
+
+    A recognised PowerShell ``-Command`` wrapper (:func:`unwrap_powershell`) is
+    unwrapped first and its inner command is classified as PowerShell. When the
+    inner command cannot be classified (unparseable for the tokenizer), the
+    wrapper text is classified as given instead -- the pre-unwrap behaviour.
+    """
+    inner = unwrap_powershell(command)
+    if inner is not None:
+        result = _classify_text(inner)
+        if result.invalid_reason is None:
+            return Classification(
+                findings=result.findings,
+                shell=SHELL_POWERSHELL,
+                unwrapped=True,
+                inner_command=inner,
+            )
+    return _classify_text(command)

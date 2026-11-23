@@ -189,15 +189,26 @@ def test_cli_quoted_operator_bypass_is_caught_end_to_end(
     assert "TW-GIT-003@v1" in out
 
 
-# --- rule 10 substitution -> unknown (parity with rules 2/7/8) --------------
+# --- rule 10 substitution: no unknown branch since 0.1.2 -------------------
 
 
 @pytest.mark.parametrize("command", ["cat $VAR", "type %SECRET%", "grep AKIA $FILE"])
-def test_secret_dump_target_substitution_is_unknown_not_pass(command: str) -> None:
-    """A dumped filename that is a shell substitution cannot be ruled a non-secret -> unknown."""
+def test_secret_dump_target_substitution_is_not_reported(command: str) -> None:
+    """A substituted filename is not reported (the unknown branch was retired in 0.1.2).
+
+    Replay evidence is in tests/test_secret_dump_narrowing.py and the rule-10
+    docstring in the command module: the branch produced nearly all of the
+    rule's shadow-log rows, the hook never surfaces an unknown, and real secret
+    dumps are blocked separately by the workspace secret-read-guard hook.
+    """
     findings = classify(command).findings
-    unknowns = [f for f in findings if f.rule_id == "TW-SEC-001@v1" and f.severity == "unknown"]
-    assert unknowns, [(f.rule_id, f.severity) for f in findings]
+    assert [f for f in findings if f.rule_id == "TW-SEC-001@v1"] == []
+
+
+def test_secret_dump_substitution_with_literal_secret_part_still_fails() -> None:
+    """The literal part of a substituted operand still counts: $DIR/id_rsa names a key."""
+    findings = classify("cat $DIR/id_rsa").findings
+    assert [(f.rule_id, f.severity) for f in findings] == [("TW-SEC-001@v1", "fail")]
 
 
 def test_secret_dump_plain_nonsecret_target_still_clears() -> None:

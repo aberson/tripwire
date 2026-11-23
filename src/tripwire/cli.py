@@ -176,7 +176,13 @@ def _handle_command_explain(args: argparse.Namespace) -> int:
     if result.invalid_reason is not None:
         sys.stderr.write(f"tripwire: {result.invalid_reason} (invalid input, exit 2)\n")
         return int(ExitCode.INVALID)
-    report = Report(target=command_text, findings=list(result.findings))
+    report = Report(
+        target=command_text,
+        findings=list(result.findings),
+        shell=result.shell,
+        unwrapped=result.unwrapped,
+        inner_command=result.inner_command,
+    )
     _emit(
         report,
         as_json=bool(args.json),
@@ -257,6 +263,11 @@ def _render_text(report: Report, *, empty_note: str | None = None) -> str:
     and rendered as-is.
     """
     lines = [f"target: {_sanitize(report.target)}"]
+    if report.unwrapped and report.inner_command is not None:
+        lines.append(
+            f"classified as {report.shell} (unwrapped from a PowerShell -Command wrapper): "
+            f"{_sanitize(report.inner_command)}"
+        )
     if not report.findings:
         lines.append(empty_note if empty_note is not None else "no findings")
         return "\n".join(lines)

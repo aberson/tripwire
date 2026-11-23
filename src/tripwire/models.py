@@ -110,14 +110,34 @@ class Report:
     target: str
     findings: list[Finding] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
+    #: Optional ``command explain`` fields, additive to schema_version 1 (readers
+    #: of the pinned three fields are unaffected). ``None`` omits the key, so a
+    #: ``check`` report serializes exactly as before. ``shell`` is the shell the
+    #: command was classified as (``powershell`` | ``unspecified``); ``unwrapped``
+    #: says whether a PowerShell ``-Command`` wrapper was unwrapped, and
+    #: ``inner_command`` is the unwrapped text (present only when unwrapped).
+    shell: str | None = None
+    unwrapped: bool | None = None
+    inner_command: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a dict with a deterministic, section-5 key order."""
-        return {
+        """Serialize to a dict with a deterministic, section-5 key order.
+
+        The pinned keys come first (``schema_version``, ``target``, ``findings``);
+        the optional additive keys follow in a fixed order, only when set.
+        """
+        data: dict[str, Any] = {
             "schema_version": self.schema_version,
             "target": self.target,
             "findings": [finding.to_dict() for finding in self.findings],
         }
+        if self.shell is not None:
+            data["shell"] = self.shell
+        if self.unwrapped is not None:
+            data["unwrapped"] = self.unwrapped
+        if self.inner_command is not None:
+            data["inner_command"] = self.inner_command
+        return data
 
     def to_json(self, *, indent: int | None = None) -> str:
         """Serialize to a JSON string with deterministic key ordering.
@@ -140,7 +160,17 @@ class Report:
                 f"unsupported schema_version {version}; this reader supports up to {SCHEMA_VERSION}"
             )
         findings = [Finding.from_dict(item) for item in data.get("findings", [])]
-        return cls(target=str(data["target"]), findings=findings, schema_version=version)
+        shell = data.get("shell")
+        unwrapped = data.get("unwrapped")
+        inner = data.get("inner_command")
+        return cls(
+            target=str(data["target"]),
+            findings=findings,
+            schema_version=version,
+            shell=None if shell is None else str(shell),
+            unwrapped=None if unwrapped is None else bool(unwrapped),
+            inner_command=None if inner is None else str(inner),
+        )
 
     @classmethod
     def from_json(cls, text: str) -> Report:

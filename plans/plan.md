@@ -64,6 +64,16 @@ No existing function signatures, schemas, or shared constants are modified in v1
   | exit code | 0 \| 1 \| 2 | JSON mirrors the §6 exit contract |
 
   JSON output mirrors these fields; deterministic key ordering is locked by Step 4.
+
+  Additive `command explain` fields (0.1.2, Skill Mesh v3.0.4; schema_version stays 1 because
+  readers of the pinned fields are unaffected). They follow `findings`, in this order, and are
+  omitted from `check` reports:
+
+  | Report field | Type / values | Notes |
+  |---|---|---|
+  | `shell` | `powershell` \| `unspecified` | the shell the command was classified as; `unspecified` = classified as given, host context decides |
+  | `unwrapped` | bool | true when a PowerShell `-Command` wrapper (the Codex CLI shell-call shape) was unwrapped |
+  | `inner_command` | str, only when unwrapped | the inner text the findings were judged on |
 - `src/tripwire/rules.py`: one canonical rule registry with provenance.
 - `src/tripwire/workspace.py`: read-only git/worktree/session probes.
 - `src/tripwire/command.py`: conservative command tokenizer and classifier.
@@ -118,6 +128,12 @@ requires. Steps 2 and 3 implement from this table.
 | 8 | Name-based process kill (`taskkill /IM`, `Stop-Process -Name`) | command | `docs/lessons-learned.md` § Subprocess tree-kill on Windows (kill by PID, never by name) |
 | 9 | Shell mismatch (`&&`/bash-isms handed to PowerShell 5.1) | command | `.claude/rules/windows-shell.md` |
 | 10 | Secret-file dump via `cat`/`type`/`grep` | command | `.claude/rules/security.md` § Never dump secret file contents |
+
+Rule 10 narrowing (0.1.2, operator-approved for Skill Mesh v3.0.4): only the files a command
+prints are judged (not search patterns, redirect targets, heredoc bodies, or source/doc files
+named after secrets), and the substitution -> `unknown` branch is retired. The rule's meaning is
+unchanged, so the id stays `TW-SEC-001@v1`. Evidence: a 2026-11-23 replay of 8,247 pre-screened
+shell commands cut its hook rows from 1,156 to 6 (fail 41 -> 6, unknown 1,115 -> 0).
 
 ## 7. Build Steps
 
