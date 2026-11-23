@@ -105,7 +105,7 @@ def test_hook_path_requires_host(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_hook_path_rejects_unknown_host(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
-        main(["hook", "path", "--host", "codex"])
+        main(["hook", "path", "--host", "copilot"])
     assert exc.value.code == 2
     assert capsys.readouterr().out == ""
 
@@ -152,8 +152,34 @@ def test_hook_path_missing_file_is_exit_2(
 
 def test_cli_host_choices_come_from_hook_files() -> None:
     # One source of truth: the CLI's --host choices are HOOK_FILES' keys.
-    assert sorted(hook_assets.HOOK_FILES) == ["claude"]
-    assert hook_assets.hook_candidates("claude")[0].name == hook_assets.HOOK_FILES["claude"]
+    assert sorted(hook_assets.HOOK_FILES) == ["claude", "codex"]
+    for host, relative in hook_assets.HOOK_FILES.items():
+        packaged = hook_assets.hook_candidates(host)[0]
+        assert packaged.as_posix().endswith("tripwire/hooks/" + relative)
+
+
+@pytest.mark.parametrize("host", ["claude", "codex"])
+def test_hook_path_each_host_console_script(host: str) -> None:
+    # The production entry point an installer runs, per host.
+    proc = _run("hook", "path", "--host", host)
+    assert proc.returncode == 0, proc.stderr
+    path = _assert_installer_shape(proc.stdout)
+    assert path.read_bytes() == SOURCE_HOOK.read_bytes()
+
+
+def test_codex_and_claude_share_one_hook_script() -> None:
+    # One script serves both hosts: no second copy that could drift.
+    assert hook_assets.HOOK_FILES["codex"] == hook_assets.HOOK_FILES["claude"]
+    assert hook_assets.hook_path("codex") == hook_assets.hook_path("claude")
+    assert sorted(p.name for p in (REPO_ROOT / "hooks").iterdir()) == ["claude"]
+
+
+def test_pyproject_force_include_ships_every_host_hook() -> None:
+    # Every HOOK_FILES value must be force-included at tripwire/hooks/<value>.
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    force = data["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+    for relative in set(hook_assets.HOOK_FILES.values()):
+        assert force.get("hooks/" + relative) == "tripwire/hooks/" + relative
 
 
 # --- hook file static checks -------------------------------------------------------
@@ -226,3 +252,8 @@ def test_wheel_ships_the_hook(tmp_path: Path) -> None:
         assert WHEEL_HOOK in zf.namelist()
         assert zf.read(WHEEL_HOOK) == SOURCE_HOOK.read_bytes()
         assert "tripwire/hook_assets.py" in zf.namelist()
+        # Every host's packaged path (codex included) is inside the wheel.
+        for host, relative in hook_assets.HOOK_FILES.items():
+            member = "tripwire/hooks/" + relative
+            assert member in zf.namelist(), host
+            assert zf.read(member) == SOURCE_HOOK.read_bytes(), host

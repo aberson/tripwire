@@ -22,7 +22,7 @@ Shell: PowerShell (primary) on Windows; commands are shell-agnostic via uv.
 - `uv run mypy --strict src` — types
 - `uv run tripwire check [--root <path>] [--json]` — workspace preflight
 - `uv run tripwire command explain [--json] -- <command>` — command-text risk explanation
-- `uv run tripwire hook path --host claude` — print the packaged Claude Code hook's absolute path
+- `uv run tripwire hook path --host claude|codex` — print the packaged PreToolUse hook's absolute path (one script serves both hosts)
 - `uv run tripwire --version` — install health check
 - `powershell -NoProfile -ExecutionPolicy Bypass -File tests/hooks/tripwire-pretool.tests.ps1` — hook behavioural suite (also run by `uv run pytest`)
 - `powershell -ExecutionPolicy Bypass -File docs/tour/open-tour.ps1` — open the guided tour page
@@ -35,8 +35,8 @@ Shell: PowerShell (primary) on Windows; commands are shell-agnostic via uv.
 - `src/tripwire/rules.py` — canonical rule registry with provenance (Step 2)
 - `src/tripwire/workspace.py` — read-only git / worktree / session probes (Step 2)
 - `src/tripwire/command.py` — conservative command tokenizer + classifier (Step 3)
-- `src/tripwire/hook_assets.py` — locates the packaged host hooks (`tripwire hook path --host claude`) (V4-10 Step 6)
-- `hooks/claude/tripwire-pretool.ps1` — advisory Claude Code PreToolUse hook, force-included into the wheel; ASCII-only; never resolves tripwire from the open project (V4-10 Step 6)
+- `src/tripwire/hook_assets.py` — locates the packaged host hooks (`tripwire hook path --host claude|codex`; both map to the one script) (V4-10 Step 6; codex 0.1.2)
+- `hooks/claude/tripwire-pretool.ps1` — advisory PreToolUse hook for Claude Code and the Codex CLI, force-included into the wheel; ASCII-only; never resolves tripwire from the open project (V4-10 Step 6; Codex wrapper handling 0.1.2)
 - `tests/hooks/` — PowerShell behavioural suite for the hook (run by `tests/test_hook_powershell.py`) + garbage anchor (V4-10 Step 6)
 - `tests/` — baseline model + CLI-surface tests
 - `tests/fixtures/` — frozen good / bad / ambiguous cases (Steps 2-4)
@@ -62,4 +62,8 @@ probes and command classification; historical v1 validation is recorded in
 - CLI handlers in `cli.py` run the production evaluators. A `check` exit 0 means no blocking
   findings, not absence of advisory findings; retain explicit `unknown`/incomplete results.
 - Everything beyond the pinned §5 finding/report fields is builder-decided; do not add fields to the
-  pinned shapes without a plan change.
+  pinned shapes without a plan change. The 0.1.2 `command explain` fields (`shell`, `unwrapped`,
+  `inner_command`) are additive, optional, and recorded in plans/plan.md §5.
+- `command explain` unwraps a PowerShell `-Command` wrapper (the Codex CLI shell-call shape) and
+  classifies the inner text; an ambiguous shape is classified as given. See README "Command
+  classification".

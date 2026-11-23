@@ -26,6 +26,11 @@
 # proves nothing. Deterministic finding shapes come from a fake tripwire.exe
 # compiled here (it prints <its dir>\out.json and logs its argv).
 #
+# CODEX HOST. The same script is the Codex hook (`tripwire hook path --host
+# codex`). Codex cases send tool_name "Bash" with the PowerShell -Command wrapper
+# line Codex hands hooks, and also run the Codex registration form
+#   powershell.exe -NoProfile -NonInteractive -File <path without a blank>
+#
 # Red anchors: a bogus root, a fake tripwire project (spawn evidence), a hostile
 # project whose build backend leaves a marker (reached only via the trusted
 # DEV_UTILITIES_ROOT tier; the open project is never run), a spy uv.exe, the
@@ -196,6 +201,34 @@ function New-Payload([string]$tool, [string]$command, [string]$cwd = 'C:\work\pr
         permission_mode = 'default'
         hook_event_name = 'PreToolUse'; tool_name = $tool
         tool_input = [ordered]@{ command = $command; description = 'test fixture' }
+    }))
+}
+
+# Quote one argument by the C-runtime rules (what the Codex CLI's spawner emits):
+# wrap in quotes, double backslashes before a quote, escape embedded quotes.
+function ConvertTo-CrtArg([string]$arg) {
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('"')
+    $bs = 0
+    foreach ($ch in $arg.ToCharArray()) {
+        if ($ch -eq [char]'\') { $bs++; continue }
+        if ($ch -eq [char]'"') { [void]$sb.Append('\' * (2 * $bs + 1)); [void]$sb.Append('"') }
+        else { if ($bs -gt 0) { [void]$sb.Append('\' * $bs) }; [void]$sb.Append($ch) }
+        $bs = 0
+    }
+    if ($bs -gt 0) { [void]$sb.Append('\' * (2 * $bs)) }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
+# Codex CLI PreToolUse payload: tool_name "Bash" and the PowerShell wrapper line.
+function New-CodexPayload([string]$inner, [string]$cwd = 'C:\work\project') {
+    $line = '"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -Command ' + (ConvertTo-CrtArg $inner)
+    return (ConvertTo-Json -Compress -InputObject ([ordered]@{
+        session_id = 'tw-codex-test'; turn_id = 'turn-1'; tool_use_id = 'call-1'
+        transcript_path = $null; cwd = $cwd; model = 'fixture-model'
+        permission_mode = 'default'; hook_event_name = 'PreToolUse'; tool_name = 'Bash'
+        tool_input = [ordered]@{ command = $line }
     }))
 }
 
@@ -476,6 +509,45 @@ try {
         Check 'CC-D12 real: TW-SHL-001 warn at a coding root -> warn row kept' `
             ($rows.Count -eq 1 -and ([string]$rows[0].rule_id) -match '^TW-SHL-001' -and $rows[0].severity -eq 'warn') "rows=$(Get-ShadowText $r.La)"
         Check-Silent 'CC-D12 real: TW-SHL-001 warn at a coding root' $r
+
+        # ===== Codex host: every shell call is tool_name "Bash" + a PowerShell wrapper =====
+        # Codex CLI (0.167+) sends the PreToolUse payload with extra keys and the
+        # command line it spawns: the quoted powershell.exe path, -Command, and
+        # the real PowerShell command quoted by the C-runtime rules.
+        $r = Invoke-Wired (New-CodexPayload 'git status && git diff') $RealEnv
+        $rows = @(Get-ShadowRows $r.La)
+        Check 'codex: wrapped git status && git diff -> TW-SHL-001 warn row KEPT (inner command is PowerShell)' `
+            ($rows.Count -eq 1 -and ([string]$rows[0].rule_id) -match '^TW-SHL-001' -and $rows[0].severity -eq 'warn') "rows=$(Get-ShadowText $r.La)"
+        Check-Silent 'codex: wrapped git status && git diff (warn stays silent)' $r
+        $r = Invoke-Wired (New-CodexPayload 'git commit -m "a && b"') $RealEnv
+        $rows = @(Get-ShadowRows $r.La)
+        Check 'codex: wrapped git commit -m "a && b" -> quoted && is no mismatch (residue row only)' `
+            ($rows.Count -eq 1 -and $null -eq $rows[0].rule_id -and $rows[0].severity -eq 'none') "rows=$(Get-ShadowText $r.La)"
+        $r = Invoke-Wired (New-CodexPayload 'Get-Content C:\proj\.env') $RealEnv
+        Check-FailLine 'codex: wrapped Get-Content C:\proj\.env' $r 'TW-SEC-001' -Full
+        $r = Invoke-Wired (New-CodexPayload 'git push --force origin main') $RealEnv
+        Check-FailLine 'codex: wrapped git push --force origin main' $r 'TW-GIT-003' -Full
+        Check 'codex: wrapped git push --force -> shadow row holds neither the wrapper nor the inner command' (
+            (Get-ShadowText $r.La) -notmatch [regex]::Escape('git push --force origin main') -and
+            (Get-ShadowText $r.La) -notmatch [regex]::Escape('powershell.exe')) "rows=$(Get-ShadowText $r.La)"
+        $r = Invoke-Wired (New-CodexPayload 'git add -A' $markerRepo) $RealEnv
+        Check-NoteLine 'codex: wrapped git add -A at a coding root (resolver reads the inner command)' $r 'warn' 'TW-GIT-001' -Full
+        $r = Invoke-Wired (New-CodexPayload 'git add -A' $plainRepo) $RealEnv
+        Check-Silent 'codex: wrapped git add -A in an ordinary repo' $r
+        # A non-shell tool's "command" (Codex apply_patch carries patch text) is never evaluated.
+        $r = Invoke-Wired (New-Payload 'apply_patch' 'cat .env') $RealEnv
+        Check-Silent 'codex: tool_name apply_patch -> not evaluated' $r
+        Check 'codex: tool_name apply_patch -> no shadow row' (-not (Test-Path -LiteralPath (Get-ShadowPath $r.La)))
+        # The Codex registration form: no quoted leading token, path without a blank.
+        $codexHookDir = New-TempDir 'codexhooks'
+        $codexHook = Join-Path $codexHookDir 'tripwire-pretool.ps1'
+        [System.IO.File]::Copy($HookPath, $codexHook, $true)
+        $r = Invoke-Wired (New-CodexPayload 'Get-Content C:\proj\.env') $RealEnv 'powershell.exe' ('-NoProfile -NonInteractive -File ' + $codexHook)
+        Check-FailLine 'codex registration (powershell.exe -NoProfile -NonInteractive -File <path>): wrapped .env read' $r 'TW-SEC-001' -Full
+        $pc = (& $RealExe hook path --host codex) -join ''
+        $pl = (& $RealExe hook path --host claude) -join ''
+        Check 'codex: tripwire hook path --host codex prints the same packaged script as --host claude' (
+            $pc -and $pc -eq $pl -and (Test-Path -LiteralPath $pc -PathType Leaf)) "codex=$pc claude=$pl"
 
         # Coding-root TW-GIT-001 warn (the one allowed warn note), real classifier,
         # actual git toplevels. Command strings are data: no add/stash/push runs.

@@ -1,13 +1,22 @@
 # PreToolUse hook (matcher Bash|PowerShell) -- advisory-only tripwire note.
 #
-# Shipped inside the tripwire package; `tripwire hook path --host claude` prints
-# the installed copy's absolute path. Registered command line (see README):
+# One script serves both hosts. Shipped inside the tripwire package;
+# `tripwire hook path --host claude` and `tripwire hook path --host codex` both
+# print the installed copy's absolute path. Registered command line (see README):
 #   powershell.exe -NoProfile -NonInteractive -File "<absolute hook path>"
+# Claude Code (~/.claude/settings.json, matcher Bash|PowerShell) and the Codex
+# CLI (~/.codex/hooks.json, matcher ^Bash$) send the same PreToolUse payload
+# (tool_name, tool_input.command, cwd) and read the same advisory output
+# (hookSpecificOutput.additionalContext). Codex sends every shell call as
+# tool_name "Bash" with a PowerShell -Command wrapper line; tripwire unwraps it
+# and reports shell "powershell" (step 5).
 # The hook may be copied anywhere (an installer copies it next to the host's
 # settings); it never locates tripwire relative to its own file.
 #
 # Flow:
 #   1. Read the hook payload JSON from stdin; take tool_name + tool_input.command.
+#      Only tool_name Bash or PowerShell is evaluated (Codex also hands hooks an
+#      apply_patch "command", which is patch text, not a shell command).
 #   2. Cheap in-process regex pre-screen. No hit -> exit 0 silently, no child
 #      process is ever spawned (this is the hot path for most commands).
 #   3. Resolve the tripwire CLI, first match wins:
@@ -29,7 +38,12 @@
 #      discarded, 3 s wall cap, and on timeout the whole process TREE is killed
 #      (taskkill /T /F /PID).
 #   5. Pin schema_version == 1, read findings[]. Drop TW-SHL-001 when
-#      tool_name == "Bash" (bash syntax is correct in bash).
+#      tool_name == "Bash" (bash syntax is correct in bash), UNLESS tripwire
+#      reports unwrapped == true and shell == "powershell": then the real
+#      command is PowerShell (the Codex wrapper) and the warn is kept. An older
+#      tripwire without those fields drops it as before. The unwrapped
+#      inner_command (when present) is what the coding-root resolver reads, and
+#      its text is redacted from shadow rows like the command's own text.
 #   6. Shadow log: append {ts, tool, rule_id, severity, observed} rows to
 #      %LOCALAPPDATA%\tripwire\hook-shadow.jsonl -- one row per finding, or
 #      one residue row (rule_id null, severity "none") when tripwire returned
@@ -418,6 +432,7 @@ function Invoke-TwMain([string]$stdinRaw) {
     if ($null -eq $payload) { return }
 
     $toolName = [string](Get-TwProp $payload 'tool_name')
+    if ($toolName -ne 'Bash' -and $toolName -ne 'PowerShell') { return }
     $command  = Get-TwProp (Get-TwProp $payload 'tool_input') 'command'
     if ($null -eq $command -or -not ($command -is [string])) { return }
     if (-not (Test-TwPreScreen $command)) { return }    # hot path: no child process
@@ -429,6 +444,7 @@ function Invoke-TwMain([string]$stdinRaw) {
     $r = Invoke-TwBounded $tw.File $argList $script:TwTimeoutMs
 
     $findings = $null
+    $psInner = $null   # unwrapped PowerShell inner command, when tripwire reports one
     if (-not $r.TimedOut -and $null -ne $r.Stdout) {
         try {
             $doc = $r.Stdout | ConvertFrom-Json
@@ -437,8 +453,14 @@ function Invoke-TwMain([string]$stdinRaw) {
                 $doc.PSObject.Properties['findings']) {
                 # @() + null filter: [] -> empty, null -> empty, objects kept.
                 $findings = @(@($doc.findings) | Where-Object { $null -ne $_ })
+                # Additive schema_version 1 fields (tripwire >= 0.1.2); absent -> $null.
+                $inner = Get-TwProp $doc 'inner_command'
+                if ((Get-TwProp $doc 'unwrapped') -eq $true -and [string](Get-TwProp $doc 'shell') -eq 'powershell' -and
+                    $inner -is [string] -and $inner.Length -gt 0) {
+                    $psInner = $inner
+                }
             }
-        } catch { $findings = $null }
+        } catch { $findings = $null; $psInner = $null }
     }
 
     if ($null -eq $findings) {
@@ -450,9 +472,15 @@ function Invoke-TwMain([string]$stdinRaw) {
     $kept = @()
     foreach ($fd in $findings) {
         $rid = [string](Get-TwProp $fd 'rule_id')
-        if ($toolName -eq 'Bash' -and $rid -match '^TW-SHL-001(@|$)') { continue }
+        # Bash syntax is correct in bash -- but a Codex PowerShell wrapper's inner
+        # command is PowerShell, so its TW-SHL-001 is real.
+        if ($toolName -eq 'Bash' -and $null -eq $psInner -and $rid -match '^TW-SHL-001(@|$)') { continue }
         $kept += $fd
     }
+    # The text the coding-root resolver reads, and the text redacted from rows.
+    $judged = $command
+    $redactText = $command
+    if ($null -ne $psInner) { $judged = $psInner; $redactText = $command + "`n" + $psInner }
 
     if ($kept.Count -eq 0) {
         # Residue: a pre-screen hit tripwire had nothing to say about.
@@ -462,7 +490,7 @@ function Invoke-TwMain([string]$stdinRaw) {
 
     $rows = @()
     foreach ($fd in $kept) {
-        $rows += (New-TwRow $toolName ([string](Get-TwProp $fd 'rule_id')) ([string](Get-TwProp $fd 'severity')) (Get-TwProp $fd 'observed') $command)
+        $rows += (New-TwRow $toolName ([string](Get-TwProp $fd 'rule_id')) ([string](Get-TwProp $fd 'severity')) (Get-TwProp $fd 'observed') $redactText)
     }
     Add-TwShadowRows $rows
 
@@ -472,7 +500,7 @@ function Invoke-TwMain([string]$stdinRaw) {
             [string](Get-TwProp $_ 'severity') -eq 'warn' -and
             [string](Get-TwProp $_ 'rule_id') -match '^TW-GIT-001(@|$)'
         })
-        if ($broad.Count -gt 0 -and (Test-TwCodingRoot $command ([string](Get-TwProp $payload 'cwd')))) {
+        if ($broad.Count -gt 0 -and (Test-TwCodingRoot $judged ([string](Get-TwProp $payload 'cwd')))) {
             $notes = $broad
         }
     }
